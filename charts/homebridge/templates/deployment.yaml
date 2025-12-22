@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "homebridge.fullname" . }}
+  labels:
+    {{- include "homebridge.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "homebridge.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "homebridge.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.homebridge.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      containers:
+        - name: homebridge
+          image: "{{ .Values.homebridge.image.repository }}:{{ .Values.homebridge.image.tag }}"
+          imagePullPolicy: {{ .Values.homebridge.image.pullPolicy }}
+          volumeMounts:
+            - name: homebridge-data
+              mountPath: /homebridge
+          {{- with .Values.homebridge.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: homebridge-data
+          {{- if .Values.homebridge.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "homebridge.fullname" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

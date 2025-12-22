@@ -1,0 +1,41 @@
+homebridge:
+  image:
+    repository: homebridge/homebridge
+    tag: latest
+    pullPolicy: Always
+  hostNetwork: true
+  service:
+    enabled: true
+    type: ClusterIP
+    port: 8581
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+  resources: {}
+
+mosquitto:
+  enabled: true
+  image:
+    repository: eclipse-mosquitto
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 1883
+  persistence:
+    enabled: true
+    dataSize: 1Gi
+    logSize: 1Gi
+    storageClass: ""
+  config: |
+    persistence true
+    persistence_location /mosquitto/data/
+    log_dest file /mosquitto/log/mosquitto.log
+    listener 1883 0.0.0.0
+    allow_anonymous true
+  resources: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

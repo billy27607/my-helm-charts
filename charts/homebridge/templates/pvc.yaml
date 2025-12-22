@@ -1,0 +1,51 @@
+{{- if .Values.homebridge.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "homebridge.fullname" . }}
+  labels:
+    {{- include "homebridge.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.homebridge.persistence.storageClass }}
+  storageClassName: {{ .Values.homebridge.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.homebridge.persistence.size }}
+{{- end }}
+---
+{{- if and .Values.mosquitto.enabled .Values.mosquitto.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "homebridge.fullname" . }}-mosquitto-data
+  labels:
+    {{- include "homebridge.mosquitto.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.mosquitto.persistence.storageClass }}
+  storageClassName: {{ .Values.mosquitto.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.mosquitto.persistence.dataSize }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "homebridge.fullname" . }}-mosquitto-log
+  labels:
+    {{- include "homebridge.mosquitto.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.mosquitto.persistence.storageClass }}
+  storageClassName: {{ .Values.mosquitto.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.mosquitto.persistence.logSize }}
+{{- end }}

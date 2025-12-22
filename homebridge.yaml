@@ -1,0 +1,41 @@
+services:
+  homebridge:
+    image: homebridge/homebridge:latest
+    restart: always
+    network_mode: host
+    hostname: homebridge
+    volumes:
+      - homebridge:/homebridge
+    logging:
+      driver: json-file
+      options:
+        max-size: "10mb"
+        max-file: "1"
+ 
+  mosquitto:
+    image: eclipse-mosquitto
+    restart: unless-stopped
+    hostname: mqtt
+    ports:
+      - 1883:1883
+    configs:
+      - source: mosquitto_conf
+        target: /mosquitto/config/mosquitto.conf
+        mode: 0444
+    volumes:
+      - mqtt_data:/mosquitto/data:rw
+      - mqtt_log:/mosquitto/log:rw
+
+volumes:
+  homebridge:
+  mqtt_data:
+  mqtt_log:
+
+configs:
+  mosquitto_conf:
+    content: |
+      persistence true
+      persistence_location /mosquitto/data/
+      log_dest file /mosquitto/log/mosquitto.log
+      listener 1883 0.0.0.0
+      allow_anonymous true

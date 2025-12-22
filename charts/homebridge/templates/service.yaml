@@ -1,0 +1,17 @@
+{{- if .Values.homebridge.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "homebridge.fullname" . }}
+  labels:
+    {{- include "homebridge.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.homebridge.service.type }}
+  ports:
+    - port: {{ .Values.homebridge.service.port }}
+      targetPort: 8581
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "homebridge.selectorLabels" . | nindent 4 }}
+{{- end }}
