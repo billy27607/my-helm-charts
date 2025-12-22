@@ -10,8 +10,10 @@ homebridge:
     port: 8581
   persistence:
     enabled: true
+    type: hostPath  # hostPath (edge) or pvc (cluster)
+    hostPath: /var/lib/homebridge
     size: 1Gi
-    storageClass: ""  # uses cluster default
+    storageClass: ""
   resources: {}
 
 mosquitto:
@@ -26,9 +28,11 @@ mosquitto:
     port: 1883
   persistence:
     enabled: true
+    type: hostPath  # hostPath (edge) or pvc (cluster)
+    hostPath: /var/lib/mosquitto
     dataSize: 1Gi
     logSize: 1Gi
-    storageClass: ""  # uses cluster default
+    storageClass: ""
   config: |
     persistence true
     persistence_location /mosquitto/data/

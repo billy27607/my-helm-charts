@@ -1,4 +1,4 @@
-{{- if .Values.homebridge.persistence.enabled }}
+{{- if and .Values.homebridge.persistence.enabled (eq .Values.homebridge.persistence.type "pvc") }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -16,7 +16,7 @@ spec:
       storage: {{ .Values.homebridge.persistence.size }}
 {{- end }}
 ---
-{{- if and .Values.mosquitto.enabled .Values.mosquitto.persistence.enabled }}
+{{- if and .Values.mosquitto.enabled .Values.mosquitto.persistence.enabled (eq .Values.mosquitto.persistence.type "pvc") }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
