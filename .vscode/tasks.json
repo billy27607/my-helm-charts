@@ -1,0 +1,143 @@
+{
+  "version": "2.0.0",
+  "inputs": [
+    {
+      "id": "chartName",
+      "type": "promptString",
+      "description": "Chart name (folder name under charts/)",
+      "default": "iperf3"
+    },
+    {
+      "id": "releaseName",
+      "type": "promptString",
+      "description": "Helm release name",
+      "default": "iperf3"
+    }
+  ],
+  "tasks": [
+    {
+      "label": "k8s: Deploy",
+      "type": "shell",
+      "command": "kubectl apply -f ${file} && echo '\n--- Waiting for rollout ---' && kubectl rollout status -f ${file} --timeout=120s; echo '\n--- Current Status ---' && kubectl get -f ${file}",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "k8s: Status",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh status ${file}",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "k8s: Logs",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh logs ${file}",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": false
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "k8s: Events",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh events ${file}",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "k8s: Resource Usage",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh resources ${file}",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "k8s: Teardown",
+      "type": "shell",
+      "command": "echo 'Deleting resources from ${file}...' && kubectl delete -f ${file} && echo 'Resources deleted successfully.'",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "helm: Install",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-install ${input:chartName} ${input:releaseName}",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "helm: Upgrade",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-upgrade ${input:chartName} ${input:releaseName}",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "helm: Status",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-status ${input:releaseName}",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "helm: Logs",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-logs ${input:releaseName}",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": false
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "helm: Uninstall",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-uninstall ${input:releaseName}",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}
