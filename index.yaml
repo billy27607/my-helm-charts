@@ -1,3 +1,14 @@
 apiVersion: v1
-entries: {}
-generated: "2025-12-22T00:00:00Z"
+entries:
+  iperf3:
+  - apiVersion: v2
+    appVersion: 3.x
+    created: "2025-12-22T18:34:49.37146348Z"
+    description: A Helm chart for iperf3 network performance testing
+    digest: 983c9de43f05e5e49eda6f6985ad25972e71be60822f46a1b149ae8197c5ad71
+    name: iperf3
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/iperf3-0.1.2/iperf3-0.1.2.tgz
+    version: 0.1.2
+generated: "2025-12-22T18:34:49.371473419Z"
