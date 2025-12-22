@@ -14,6 +14,16 @@ entries:
   iperf3:
   - apiVersion: v2
     appVersion: 3.x
+    created: "2025-12-22T19:26:12.201060471Z"
+    description: A Helm chart for iperf3 network performance testing
+    digest: 0810aedd71420453909a78c3cc95e6b6f38d79007b618514b58aad2d59e5604b
+    name: iperf3
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/iperf3-0.2.0/iperf3-0.2.0.tgz
+    version: 0.2.0
+  - apiVersion: v2
+    appVersion: 3.x
     created: "2025-12-22T18:34:49.37146348Z"
     description: A Helm chart for iperf3 network performance testing
     digest: 983c9de43f05e5e49eda6f6985ad25972e71be60822f46a1b149ae8197c5ad71
@@ -22,4 +32,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/iperf3-0.1.2/iperf3-0.1.2.tgz
     version: 0.1.2
-generated: "2025-12-22T19:03:17.160156285Z"
+generated: "2025-12-22T19:26:12.201068896Z"
