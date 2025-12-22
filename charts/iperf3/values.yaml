@@ -9,9 +9,12 @@ nameOverride: ""
 fullnameOverride: ""
 
 service:
-  type: NodePort
+  type: ClusterIP
   port: 5201
-  nodePort: 30201
+
+hostPort:
+  enabled: true
+  port: 5201
 
 resources: {}
   # limits:

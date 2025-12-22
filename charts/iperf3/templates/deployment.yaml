@@ -33,6 +33,9 @@ spec:
           args: ["-s"]
           ports:
             - containerPort: {{ .Values.service.port }}
+              {{- if .Values.hostPort.enabled }}
+              hostPort: {{ .Values.hostPort.port | default .Values.service.port }}
+              {{- end }}
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

@@ -9,8 +9,10 @@ spec:
   ports:
     - port: {{ .Values.service.port }}
       targetPort: {{ .Values.service.port }}
-      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
+      {{- if and (eq .Values.service.type "NodePort") (.Values.service.nodePort) }}
       nodePort: {{ .Values.service.nodePort }}
       {{- end }}
+      protocol: TCP
+      name: iperf3
   selector:
     {{- include "iperf3.selectorLabels" . | nindent 4 }}
