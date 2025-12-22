@@ -3,6 +3,16 @@ entries:
   homebridge:
   - apiVersion: v2
     appVersion: latest
+    created: "2025-12-22T21:22:29.172796514Z"
+    description: A Helm chart for Homebridge with Mosquitto MQTT broker
+    digest: 1487fe88087553a10c85fba82de6b58a84d431a619927773f22ae91e27763cac
+    name: homebridge
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/homebridge-0.2.1/homebridge-0.2.1.tgz
+    version: 0.2.1
+  - apiVersion: v2
+    appVersion: latest
     created: "2025-12-22T21:21:09.289372155Z"
     description: A Helm chart for Homebridge with Mosquitto MQTT broker
     digest: 3e0d35b78bbca799c92261de564ab5f671e69705d355b669679cb28cdbb3926f
@@ -42,4 +52,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/iperf3-0.1.2/iperf3-0.1.2.tgz
     version: 0.1.2
-generated: "2025-12-22T21:21:09.289386923Z"
+generated: "2025-12-22T21:22:29.172818054Z"
