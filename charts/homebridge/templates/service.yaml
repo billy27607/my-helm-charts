@@ -5,6 +5,11 @@ metadata:
   name: {{ include "homebridge.fullname" . }}
   labels:
     {{- include "homebridge.labels" . | nindent 4 }}
+  {{- if .Values.homebridge.service.loadBalancerIP }}
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: {{ .Values.homebridge.service.loadBalancerIP }}
+    metallb.universe.tf/allow-shared-ip: homebridge
+  {{- end }}
 spec:
   type: {{ .Values.homebridge.service.type }}
   ports:

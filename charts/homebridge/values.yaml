@@ -11,11 +11,12 @@ homebridge:
   persistence:
     enabled: true
     size: 1Gi
-    storageClass: ""
+    storageClass: "local-path"
   resources: {}
 
 mosquitto:
   enabled: true
+  hostNetwork: true
   image:
     repository: eclipse-mosquitto
     tag: latest
@@ -27,7 +28,7 @@ mosquitto:
     enabled: true
     dataSize: 1Gi
     logSize: 1Gi
-    storageClass: ""
+    storageClass: "local-path"
   config: |
     persistence true
     persistence_location /mosquitto/data/

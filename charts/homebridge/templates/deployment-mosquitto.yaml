@@ -17,6 +17,14 @@ spec:
       labels:
         {{- include "homebridge.mosquitto.selectorLabels" . | nindent 8 }}
     spec:
+      {{- if .Values.mosquitto.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      securityContext:
+        runAsUser: 1883
+        runAsGroup: 1883
+        fsGroup: 1883
       containers:
         - name: mosquitto
           image: "{{ .Values.mosquitto.image.repository }}:{{ .Values.mosquitto.image.tag }}"

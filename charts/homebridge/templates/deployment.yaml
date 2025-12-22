@@ -24,6 +24,10 @@ spec:
         - name: homebridge
           image: "{{ .Values.homebridge.image.repository }}:{{ .Values.homebridge.image.tag }}"
           imagePullPolicy: {{ .Values.homebridge.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8581
+              protocol: TCP
           volumeMounts:
             - name: homebridge-data
               mountPath: /homebridge
