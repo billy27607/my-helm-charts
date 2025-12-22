@@ -51,27 +51,15 @@ spec:
             name: {{ include "homebridge.fullname" . }}-mosquitto
         - name: data
           {{- if .Values.mosquitto.persistence.enabled }}
-          {{- if eq .Values.mosquitto.persistence.type "hostPath" }}
-          hostPath:
-            path: {{ .Values.mosquitto.persistence.hostPath }}/data
-            type: DirectoryOrCreate
-          {{- else }}
           persistentVolumeClaim:
             claimName: {{ include "homebridge.fullname" . }}-mosquitto-data
-          {{- end }}
           {{- else }}
           emptyDir: {}
           {{- end }}
         - name: log
           {{- if .Values.mosquitto.persistence.enabled }}
-          {{- if eq .Values.mosquitto.persistence.type "hostPath" }}
-          hostPath:
-            path: {{ .Values.mosquitto.persistence.hostPath }}/log
-            type: DirectoryOrCreate
-          {{- else }}
           persistentVolumeClaim:
             claimName: {{ include "homebridge.fullname" . }}-mosquitto-log
-          {{- end }}
           {{- else }}
           emptyDir: {}
           {{- end }}

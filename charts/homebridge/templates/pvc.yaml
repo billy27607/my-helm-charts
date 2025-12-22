@@ -1,4 +1,4 @@
-{{- if and .Values.homebridge.persistence.enabled (eq .Values.homebridge.persistence.type "pvc") }}
+{{- if .Values.homebridge.persistence.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -8,7 +8,9 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  {{- if .Values.homebridge.persistence.storageClass }}
+  {{- if eq .Values.homebridge.persistence.type "hostPath" }}
+  storageClassName: {{ include "homebridge.fullname" . }}
+  {{- else if .Values.homebridge.persistence.storageClass }}
   storageClassName: {{ .Values.homebridge.persistence.storageClass }}
   {{- end }}
   resources:
@@ -16,7 +18,7 @@ spec:
       storage: {{ .Values.homebridge.persistence.size }}
 {{- end }}
 ---
-{{- if and .Values.mosquitto.enabled .Values.mosquitto.persistence.enabled (eq .Values.mosquitto.persistence.type "pvc") }}
+{{- if and .Values.mosquitto.enabled .Values.mosquitto.persistence.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -26,7 +28,9 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  {{- if .Values.mosquitto.persistence.storageClass }}
+  {{- if eq .Values.mosquitto.persistence.type "hostPath" }}
+  storageClassName: {{ include "homebridge.fullname" . }}-mosquitto
+  {{- else if .Values.mosquitto.persistence.storageClass }}
   storageClassName: {{ .Values.mosquitto.persistence.storageClass }}
   {{- end }}
   resources:
@@ -42,7 +46,9 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  {{- if .Values.mosquitto.persistence.storageClass }}
+  {{- if eq .Values.mosquitto.persistence.type "hostPath" }}
+  storageClassName: {{ include "homebridge.fullname" . }}-mosquitto
+  {{- else if .Values.mosquitto.persistence.storageClass }}
   storageClassName: {{ .Values.mosquitto.persistence.storageClass }}
   {{- end }}
   resources:
