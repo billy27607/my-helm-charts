@@ -11,7 +11,7 @@ homebridge:
   persistence:
     enabled: true
     size: 1Gi
-    storageClass: "local-path"
+    storageClass: ""  # uses cluster default
   resources: {}
 
 mosquitto:
@@ -28,7 +28,7 @@ mosquitto:
     enabled: true
     dataSize: 1Gi
     logSize: 1Gi
-    storageClass: "local-path"
+    storageClass: ""  # uses cluster default
   config: |
     persistence true
     persistence_location /mosquitto/data/
