@@ -12,6 +12,12 @@
       "type": "promptString",
       "description": "Helm release name",
       "default": "iperf3"
+    },
+    {
+      "id": "helmExtraArgs",
+      "type": "promptString",
+      "description": "Extra Helm args (e.g., --set key=value)",
+      "default": ""
     }
   ],
   "tasks": [
@@ -86,7 +92,7 @@
     {
       "label": "helm: Install",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-install ${input:chartName} ${input:releaseName}",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-install ${input:chartName} ${input:releaseName} ${input:helmExtraArgs}",
       "presentation": {
         "reveal": "always",
         "panel": "shared",
@@ -97,7 +103,7 @@
     {
       "label": "helm: Upgrade",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-upgrade ${input:chartName} ${input:releaseName}",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-upgrade ${input:chartName} ${input:releaseName} ${input:helmExtraArgs}",
       "presentation": {
         "reveal": "always",
         "panel": "shared",

@@ -1,0 +1,25 @@
+image:
+  repository: ghcr.io/billy27607/hdhomerun_proxy
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Address of the app proxy (required)
+# Format: hostname or IP address (port 65001 is used automatically)
+appProxyHost: ""
+
+# Enable debug logging
+debug: false
+
+# Host network is required for UDP broadcast from HDHomeRun apps
+hostNetwork: true
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 65001
+
+resources: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

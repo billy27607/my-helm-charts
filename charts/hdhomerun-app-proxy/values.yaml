@@ -1,0 +1,24 @@
+image:
+  repository: ghcr.io/billy27607/hdhomerun_proxy
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Bind address for the app proxy (optional, empty means all interfaces)
+bindAddress: ""
+
+# Enable debug logging
+debug: false
+
+# Host network is required for UDP broadcast to reach tuners
+hostNetwork: true
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 65001
+
+resources: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

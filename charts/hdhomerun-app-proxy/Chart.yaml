@@ -1,0 +1,6 @@
+apiVersion: v2
+name: hdhomerun-app-proxy
+description: A Helm chart for HDHomeRun App Proxy - runs on the tuner's network
+type: application
+version: 0.1.0
+appVersion: "latest"

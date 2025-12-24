@@ -155,10 +155,13 @@ case "$COMMAND" in
         CHART_NAME="${2:-}"
         RELEASE_NAME="${3:-$CHART_NAME}"
         CHART_PATH="$CHARTS_DIR/$CHART_NAME"
+        # Capture extra arguments (--set, --values, etc.) starting from arg 4
+        shift 3 2>/dev/null || shift $#
+        EXTRA_ARGS=("$@")
 
         if [[ -z "$CHART_NAME" ]]; then
             echo -e "${RED}Error: Chart name required${NC}"
-            echo "Usage: $0 helm-install <chart-name> [release-name]"
+            echo "Usage: $0 helm-install <chart-name> [release-name] [--set key=value...]"
             exit 1
         fi
 
@@ -168,9 +171,13 @@ case "$COMMAND" in
         fi
 
         echo -e "${BLUE}=== Installing Helm chart: $CHART_NAME ===${NC}"
-        echo -e "${YELLOW}Release name: $RELEASE_NAME${NC}\n"
+        echo -e "${YELLOW}Release name: $RELEASE_NAME${NC}"
+        if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
+            echo -e "${YELLOW}Extra args: ${EXTRA_ARGS[*]}${NC}"
+        fi
+        echo ""
 
-        helm install "$RELEASE_NAME" "$CHART_PATH" --wait
+        helm install "$RELEASE_NAME" "$CHART_PATH" --wait "${EXTRA_ARGS[@]}"
 
         echo -e "\n${GREEN}Installation complete!${NC}"
         echo -e "\n${BLUE}=== Release Status ===${NC}"
@@ -186,10 +193,13 @@ case "$COMMAND" in
         CHART_NAME="${2:-}"
         RELEASE_NAME="${3:-$CHART_NAME}"
         CHART_PATH="$CHARTS_DIR/$CHART_NAME"
+        # Capture extra arguments (--set, --values, etc.) starting from arg 4
+        shift 3 2>/dev/null || shift $#
+        EXTRA_ARGS=("$@")
 
         if [[ -z "$CHART_NAME" ]]; then
             echo -e "${RED}Error: Chart name required${NC}"
-            echo "Usage: $0 helm-upgrade <chart-name> [release-name]"
+            echo "Usage: $0 helm-upgrade <chart-name> [release-name] [--set key=value...]"
             exit 1
         fi
 
@@ -198,9 +208,31 @@ case "$COMMAND" in
             exit 1
         fi
 
-        echo -e "${BLUE}=== Upgrading Helm release: $RELEASE_NAME ===${NC}\n"
+        echo -e "${BLUE}=== Upgrading Helm release: $RELEASE_NAME ===${NC}"
+        if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
+            echo -e "${YELLOW}Extra args: ${EXTRA_ARGS[*]}${NC}"
+        fi
+        echo ""
 
-        helm upgrade "$RELEASE_NAME" "$CHART_PATH" --wait
+        # Check for other releases using the same chart (potential conflicts)
+        CONFLICTING_RELEASES=$(helm list --output json | jq -r --arg chart "$CHART_NAME" --arg release "$RELEASE_NAME" \
+            '.[] | select(.chart | contains($chart)) | select(.name != $release) | .name' 2>/dev/null)
+
+        if [[ -n "$CONFLICTING_RELEASES" ]]; then
+            echo -e "${YELLOW}=== Found other releases using the same chart ===${NC}"
+            echo -e "These releases may conflict (e.g., hostPort bindings):\n"
+            for rel in $CONFLICTING_RELEASES; do
+                echo -e "  - ${YELLOW}$rel${NC}"
+            done
+            echo -e "\n${YELLOW}Uninstalling conflicting releases...${NC}\n"
+            for rel in $CONFLICTING_RELEASES; do
+                echo -e "Uninstalling: $rel"
+                helm uninstall "$rel" --wait 2>/dev/null || true
+            done
+            echo ""
+        fi
+
+        helm upgrade "$RELEASE_NAME" "$CHART_PATH" --install --wait "${EXTRA_ARGS[@]}"
 
         echo -e "\n${GREEN}Upgrade complete!${NC}"
         echo -e "\n${BLUE}=== Release Status ===${NC}"
