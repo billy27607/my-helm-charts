@@ -1,5 +1,27 @@
 apiVersion: v1
 entries:
+  hdhomerun-app-proxy:
+  - apiVersion: v2
+    appVersion: latest
+    created: "2025-12-24T16:48:51.64902804Z"
+    description: A Helm chart for HDHomeRun App Proxy - runs on the tuner's network
+    digest: 773f2ba3d49316cecf9099ba38aa657466850edebce53e43079b72f2c001aad1
+    name: hdhomerun-app-proxy
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/hdhomerun-app-proxy-0.1.0/hdhomerun-app-proxy-0.1.0.tgz
+    version: 0.1.0
+  hdhomerun-tuner-proxy:
+  - apiVersion: v2
+    appVersion: latest
+    created: "2025-12-24T16:48:51.801610245Z"
+    description: A Helm chart for HDHomeRun Tuner Proxy - runs on the app's network
+    digest: 36ca9c17614682bb5e2a0ce06a4e72a936c9c1356e5ad1f1209baed85623b036
+    name: hdhomerun-tuner-proxy
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/hdhomerun-tuner-proxy-0.1.0/hdhomerun-tuner-proxy-0.1.0.tgz
+    version: 0.1.0
   homebridge:
   - apiVersion: v2
     appVersion: latest
@@ -72,4 +94,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/iperf3-0.1.2/iperf3-0.1.2.tgz
     version: 0.1.2
-generated: "2025-12-22T21:28:44.944612336Z"
+generated: "2025-12-24T16:48:51.801629481Z"
