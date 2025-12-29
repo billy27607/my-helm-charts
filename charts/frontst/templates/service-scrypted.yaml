@@ -1,0 +1,17 @@
+{{- if and .Values.scrypted.enabled .Values.scrypted.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "frontst.fullname" . }}-scrypted
+  labels:
+    {{- include "frontst.scrypted.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.scrypted.service.type }}
+  ports:
+    - port: {{ .Values.scrypted.service.port }}
+      targetPort: https
+      protocol: TCP
+      name: https
+  selector:
+    {{- include "frontst.scrypted.selectorLabels" . | nindent 4 }}
+{{- end }}

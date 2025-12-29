@@ -1,0 +1,13 @@
+apiVersion: v2
+name: xcarve
+description: A Helm chart for X-Carve CNC machine with CNCjs controller and MJPG-Streamer webcam
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - cnc
+  - cncjs
+  - xcarve
+  - mjpg-streamer
+  - webcam
+home: https://github.com/cncjs/cncjs

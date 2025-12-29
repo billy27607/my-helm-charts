@@ -1,0 +1,11 @@
+{{- if .Values.mosquitto.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "frontst.fullname" . }}-mosquitto
+  labels:
+    {{- include "frontst.mosquitto.labels" . | nindent 4 }}
+data:
+  mosquitto.conf: |
+    {{- .Values.mosquitto.config | nindent 4 }}
+{{- end }}

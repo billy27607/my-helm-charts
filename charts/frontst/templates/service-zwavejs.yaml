@@ -1,0 +1,21 @@
+{{- if and .Values.zwavejs.enabled .Values.zwavejs.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "frontst.fullname" . }}-zwavejs
+  labels:
+    {{- include "frontst.zwavejs.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.zwavejs.service.type }}
+  ports:
+    - port: {{ .Values.zwavejs.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.zwavejs.service.wsPort }}
+      targetPort: websocket
+      protocol: TCP
+      name: websocket
+  selector:
+    {{- include "frontst.zwavejs.selectorLabels" . | nindent 4 }}
+{{- end }}

@@ -1,0 +1,76 @@
+{{- if .Values.zwavejs.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "frontst.fullname" . }}-zwavejs
+  labels:
+    {{- include "frontst.zwavejs.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "frontst.zwavejs.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "frontst.zwavejs.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.zwavejs.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      containers:
+        - name: zwavejs
+          image: "{{ .Values.zwavejs.image.repository }}:{{ .Values.zwavejs.image.tag }}"
+          imagePullPolicy: {{ .Values.zwavejs.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8091
+              protocol: TCP
+            - name: websocket
+              containerPort: 3000
+              protocol: TCP
+          {{- if .Values.zwavejs.device }}
+          securityContext:
+            privileged: true
+          {{- end }}
+          volumeMounts:
+            - name: zwavejs-data
+              mountPath: /usr/src/app/store
+            {{- if .Values.zwavejs.device }}
+            - name: zwave-device
+              mountPath: /dev/zwave
+            {{- end }}
+          {{- with .Values.zwavejs.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: zwavejs-data
+          {{- if .Values.zwavejs.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "frontst.fullname" . }}-zwavejs
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if .Values.zwavejs.device }}
+        - name: zwave-device
+          hostPath:
+            path: {{ .Values.zwavejs.device }}
+            type: CharDevice
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,17 @@
+{{- if .Values.mjpgStreamer.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "xcarve.fullname" . }}-mjpg-streamer
+  labels:
+    {{- include "xcarve.mjpgStreamer.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.mjpgStreamer.service.type }}
+  ports:
+    - port: {{ .Values.mjpgStreamer.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "xcarve.mjpgStreamer.selectorLabels" . | nindent 4 }}
+{{- end }}

@@ -1,0 +1,59 @@
+{{- if .Values.homebridge.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "frontst.fullname" . }}-homebridge
+  labels:
+    {{- include "frontst.homebridge.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "frontst.homebridge.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "frontst.homebridge.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.homebridge.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      containers:
+        - name: homebridge
+          image: "{{ .Values.homebridge.image.repository }}:{{ .Values.homebridge.image.tag }}"
+          imagePullPolicy: {{ .Values.homebridge.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8581
+              protocol: TCP
+          volumeMounts:
+            - name: homebridge-data
+              mountPath: /homebridge
+          {{- with .Values.homebridge.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: homebridge-data
+          {{- if .Values.homebridge.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "frontst.fullname" . }}-homebridge
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

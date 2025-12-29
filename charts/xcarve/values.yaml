@@ -1,0 +1,60 @@
+# X-Carve CNC Helm Chart Values
+
+# CNCjs - Web-based CNC controller
+cncjs:
+  enabled: true
+  image:
+    repository: docker.io/cncjs/cncjs
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Serial device for CNC connection
+  device: /dev/ttyACM0
+
+  # Privileged mode required for device access
+  privileged: true
+
+  service:
+    type: LoadBalancer
+    port: 8000
+
+  # Persistent storage for CNCjs config
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+
+# MJPG-Streamer - Webcam streaming
+mjpgStreamer:
+  enabled: true
+  image:
+    repository: docker.io/badsmoke/mjpg-streamer
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Video device for camera
+  device: /dev/video0
+
+  # Privileged mode required for device access
+  privileged: true
+
+  # Camera settings
+  resolution: "640x480"
+  fps: 30
+
+  service:
+    type: LoadBalancer
+    port: 8080
+
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+
+# Common settings
+nameOverride: ""
+fullnameOverride: ""

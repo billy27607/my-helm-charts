@@ -1,0 +1,74 @@
+{{- if .Values.mosquitto.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "frontst.fullname" . }}-mosquitto
+  labels:
+    {{- include "frontst.mosquitto.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "frontst.mosquitto.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "frontst.mosquitto.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.mosquitto.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      containers:
+        - name: mosquitto
+          image: "{{ .Values.mosquitto.image.repository }}:{{ .Values.mosquitto.image.tag }}"
+          imagePullPolicy: {{ .Values.mosquitto.image.pullPolicy }}
+          ports:
+            - name: mqtt
+              containerPort: 1883
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /mosquitto/config/mosquitto.conf
+              subPath: mosquitto.conf
+            - name: data
+              mountPath: /mosquitto/data
+            - name: log
+              mountPath: /mosquitto/log
+          {{- with .Values.mosquitto.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "frontst.fullname" . }}-mosquitto
+        - name: data
+          {{- if .Values.mosquitto.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "frontst.fullname" . }}-mosquitto-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: log
+          {{- if .Values.mosquitto.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "frontst.fullname" . }}-mosquitto-log
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

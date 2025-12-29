@@ -1,0 +1,59 @@
+{{- if .Values.scrypted.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "frontst.fullname" . }}-scrypted
+  labels:
+    {{- include "frontst.scrypted.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "frontst.scrypted.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "frontst.scrypted.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.scrypted.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      containers:
+        - name: scrypted
+          image: "{{ .Values.scrypted.image.repository }}:{{ .Values.scrypted.image.tag }}"
+          imagePullPolicy: {{ .Values.scrypted.image.pullPolicy }}
+          ports:
+            - name: https
+              containerPort: 10443
+              protocol: TCP
+          volumeMounts:
+            - name: scrypted-data
+              mountPath: /server/volume
+          {{- with .Values.scrypted.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: scrypted-data
+          {{- if .Values.scrypted.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "frontst.fullname" . }}-scrypted
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

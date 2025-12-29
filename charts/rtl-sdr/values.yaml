@@ -1,0 +1,42 @@
+image:
+  repository: ghcr.io/billy27607/rtl-sdr
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Command to run (default: rtl_tcp listening on all interfaces)
+command: ["rtl_tcp", "-a", "0.0.0.0"]
+
+# rtl_tcp port
+port: 1234
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 1234
+  # annotations: {}
+
+# Traefik IngressRouteTCP
+ingress:
+  enabled: true
+  entryPoint: rtlsdr  # matches Traefik entrypoint name
+
+# USB device access - required for RTL-SDR hardware
+usb:
+  enabled: true
+  hostPath: /dev/bus/usb
+
+# Security context for USB device access
+securityContext:
+  privileged: true
+
+# Host network mode (alternative to service for direct access)
+hostNetwork: false
+
+# Node selection for targeting specific hardware
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+resources: {}

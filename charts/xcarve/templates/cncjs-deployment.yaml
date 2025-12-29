@@ -1,0 +1,60 @@
+{{- if .Values.cncjs.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "xcarve.fullname" . }}-cncjs
+  labels:
+    {{- include "xcarve.cncjs.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "xcarve.cncjs.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "xcarve.cncjs.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: cncjs
+          image: "{{ .Values.cncjs.image.repository }}:{{ .Values.cncjs.image.tag }}"
+          imagePullPolicy: {{ .Values.cncjs.image.pullPolicy }}
+          {{- if .Values.cncjs.privileged }}
+          securityContext:
+            privileged: true
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          volumeMounts:
+            {{- if .Values.cncjs.persistence.enabled }}
+            - name: cncjs-data
+              mountPath: /root/.cncjs
+            {{- end }}
+            - name: dev-tty
+              mountPath: {{ .Values.cncjs.device }}
+          {{- with .Values.cncjs.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        {{- if .Values.cncjs.persistence.enabled }}
+        - name: cncjs-data
+          persistentVolumeClaim:
+            claimName: {{ include "xcarve.fullname" . }}-cncjs
+        {{- end }}
+        - name: dev-tty
+          hostPath:
+            path: {{ .Values.cncjs.device }}
+      {{- with .Values.cncjs.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cncjs.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

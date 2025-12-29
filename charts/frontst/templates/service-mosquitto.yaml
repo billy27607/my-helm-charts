@@ -1,0 +1,17 @@
+{{- if .Values.mosquitto.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "frontst.fullname" . }}-mosquitto
+  labels:
+    {{- include "frontst.mosquitto.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.mosquitto.service.type }}
+  ports:
+    - port: {{ .Values.mosquitto.service.port }}
+      targetPort: mqtt
+      protocol: TCP
+      name: mqtt
+  selector:
+    {{- include "frontst.mosquitto.selectorLabels" . | nindent 4 }}
+{{- end }}

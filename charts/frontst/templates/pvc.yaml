@@ -1,0 +1,88 @@
+{{- if and .Values.homebridge.enabled .Values.homebridge.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "frontst.fullname" . }}-homebridge
+  labels:
+    {{- include "frontst.homebridge.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.homebridge.persistence.storageClass }}
+  storageClassName: {{ .Values.homebridge.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.homebridge.persistence.size }}
+{{- end }}
+{{- if and .Values.mosquitto.enabled .Values.mosquitto.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "frontst.fullname" . }}-mosquitto-data
+  labels:
+    {{- include "frontst.mosquitto.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.mosquitto.persistence.storageClass }}
+  storageClassName: {{ .Values.mosquitto.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.mosquitto.persistence.dataSize }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "frontst.fullname" . }}-mosquitto-log
+  labels:
+    {{- include "frontst.mosquitto.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.mosquitto.persistence.storageClass }}
+  storageClassName: {{ .Values.mosquitto.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.mosquitto.persistence.logSize }}
+{{- end }}
+{{- if and .Values.zwavejs.enabled .Values.zwavejs.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "frontst.fullname" . }}-zwavejs
+  labels:
+    {{- include "frontst.zwavejs.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.zwavejs.persistence.storageClass }}
+  storageClassName: {{ .Values.zwavejs.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.zwavejs.persistence.size }}
+{{- end }}
+{{- if and .Values.scrypted.enabled .Values.scrypted.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "frontst.fullname" . }}-scrypted
+  labels:
+    {{- include "frontst.scrypted.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.scrypted.persistence.storageClass }}
+  storageClassName: {{ .Values.scrypted.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.scrypted.persistence.size }}
+{{- end }}

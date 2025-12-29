@@ -1,0 +1,17 @@
+{{- if and .Values.cncjs.enabled .Values.cncjs.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "xcarve.fullname" . }}-cncjs
+  labels:
+    {{- include "xcarve.cncjs.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.cncjs.persistence.accessMode }}
+  {{- if .Values.cncjs.persistence.storageClass }}
+  storageClassName: {{ .Values.cncjs.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.cncjs.persistence.size }}
+{{- end }}

@@ -1,0 +1,56 @@
+{{- if .Values.mjpgStreamer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "xcarve.fullname" . }}-mjpg-streamer
+  labels:
+    {{- include "xcarve.mjpgStreamer.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "xcarve.mjpgStreamer.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "xcarve.mjpgStreamer.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: mjpg-streamer
+          image: "{{ .Values.mjpgStreamer.image.repository }}:{{ .Values.mjpgStreamer.image.tag }}"
+          imagePullPolicy: {{ .Values.mjpgStreamer.image.pullPolicy }}
+          {{- if .Values.mjpgStreamer.privileged }}
+          securityContext:
+            privileged: true
+          {{- end }}
+          env:
+            - name: ENV_RESOLUTION
+              value: {{ .Values.mjpgStreamer.resolution | quote }}
+            - name: ENV_FPS
+              value: {{ .Values.mjpgStreamer.fps | quote }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - name: dev-video
+              mountPath: {{ .Values.mjpgStreamer.device }}
+          {{- with .Values.mjpgStreamer.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: dev-video
+          hostPath:
+            path: {{ .Values.mjpgStreamer.device }}
+      {{- with .Values.mjpgStreamer.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mjpgStreamer.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

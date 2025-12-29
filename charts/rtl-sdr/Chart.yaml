@@ -1,0 +1,6 @@
+apiVersion: v2
+name: rtl-sdr
+description: A Helm chart for RTL-SDR TCP server (rtl_tcp)
+type: application
+version: 0.1.0
+appVersion: "latest"

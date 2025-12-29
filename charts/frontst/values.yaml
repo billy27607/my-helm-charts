@@ -1,0 +1,79 @@
+homebridge:
+  enabled: true
+  image:
+    repository: homebridge/homebridge
+    tag: latest
+    pullPolicy: Always
+  hostNetwork: true
+  service:
+    enabled: true
+    type: ClusterIP
+    port: 8581
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+  resources: {}
+
+mosquitto:
+  enabled: true
+  image:
+    repository: eclipse-mosquitto
+    tag: latest
+    pullPolicy: IfNotPresent
+  hostNetwork: false
+  service:
+    type: ClusterIP
+    port: 1883
+  persistence:
+    enabled: true
+    dataSize: 1Gi
+    logSize: 1Gi
+    storageClass: ""
+  config: |
+    persistence true
+    persistence_location /mosquitto/data/
+    log_dest file /mosquitto/log/mosquitto.log
+    listener 1883 0.0.0.0
+    allow_anonymous true
+  resources: {}
+
+zwavejs:
+  enabled: true
+  image:
+    repository: zwavejs/zwave-js-ui
+    tag: latest
+    pullPolicy: Always
+  hostNetwork: true
+  device: /dev/ttyACM0
+  service:
+    enabled: true
+    type: ClusterIP
+    httpPort: 8091
+    wsPort: 3000
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+  resources: {}
+
+scrypted:
+  enabled: true
+  image:
+    repository: ghcr.io/koush/scrypted
+    tag: latest
+    pullPolicy: Always
+  hostNetwork: true
+  service:
+    enabled: true
+    type: ClusterIP
+    port: 10443
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+  resources: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

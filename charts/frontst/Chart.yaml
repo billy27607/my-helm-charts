@@ -1,0 +1,6 @@
+apiVersion: v2
+name: frontst
+description: A Helm chart for home automation stack (Homebridge, Mosquitto, Z-Wave JS, Scrypted)
+type: application
+version: 0.1.0
+appVersion: "latest"
