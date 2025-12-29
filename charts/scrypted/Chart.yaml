@@ -1,0 +1,6 @@
+apiVersion: v2
+name: scrypted
+description: A Helm chart for Scrypted NVR home video integration
+type: application
+version: 0.1.0
+appVersion: "latest"

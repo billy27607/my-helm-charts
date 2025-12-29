@@ -301,6 +301,41 @@ case "$COMMAND" in
         kubectl logs -f "$POD"
         ;;
 
+    helm-restart)
+        RELEASE_NAME="${2:-}"
+
+        if [[ -z "$RELEASE_NAME" ]]; then
+            echo -e "${RED}Error: Release name required${NC}"
+            echo "Usage: $0 helm-restart <release-name>"
+            exit 1
+        fi
+
+        echo -e "${BLUE}=== Restarting pods for release: $RELEASE_NAME ===${NC}"
+        echo -e "${YELLOW}This will pull the latest image and restart the pod${NC}\n"
+
+        # Find deployments for this release
+        DEPLOYMENTS=$(kubectl get deployments -l "app.kubernetes.io/instance=$RELEASE_NAME" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
+
+        if [[ -z "$DEPLOYMENTS" ]]; then
+            echo -e "${RED}No deployments found for release $RELEASE_NAME${NC}"
+            exit 1
+        fi
+
+        for DEPLOYMENT in $DEPLOYMENTS; do
+            echo -e "${GREEN}Restarting deployment: $DEPLOYMENT${NC}"
+            kubectl rollout restart deployment "$DEPLOYMENT"
+        done
+
+        echo -e "\n${YELLOW}Waiting for rollout to complete...${NC}"
+        for DEPLOYMENT in $DEPLOYMENTS; do
+            kubectl rollout status deployment "$DEPLOYMENT" --timeout=120s
+        done
+
+        echo -e "\n${GREEN}Restart complete!${NC}"
+        echo -e "\n${BLUE}=== Pod Status ===${NC}"
+        kubectl get pods -l "app.kubernetes.io/instance=$RELEASE_NAME" -o wide
+        ;;
+
     helm-uninstall)
         if ! command -v helm &> /dev/null; then
             echo -e "${RED}Error: helm is not installed or not in PATH${NC}"
@@ -325,7 +360,7 @@ case "$COMMAND" in
     *)
         echo -e "${RED}Unknown command: $COMMAND${NC}"
         echo "kubectl commands: status, logs, events, resources"
-        echo "Helm commands: helm-install, helm-upgrade, helm-status, helm-logs, helm-uninstall"
+        echo "Helm commands: helm-install, helm-upgrade, helm-status, helm-logs, helm-restart, helm-uninstall"
         exit 1
         ;;
 esac

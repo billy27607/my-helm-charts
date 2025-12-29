@@ -1,0 +1,39 @@
+{{- if .Values.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "scrypted.fullname" . }}
+  labels:
+    {{- include "scrypted.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if eq .Values.persistence.type "hostPath" }}
+  storageClassName: {{ include "scrypted.fullname" . }}
+  {{- else if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}
+---
+{{- if and .Values.nvrStorage.enabled (ne .Values.nvrStorage.type "nfs") }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "scrypted.fullname" . }}-nvr
+  labels:
+    {{- include "scrypted.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if eq .Values.nvrStorage.type "hostPath" }}
+  storageClassName: {{ include "scrypted.fullname" . }}-nvr
+  {{- else if .Values.nvrStorage.storageClass }}
+  storageClassName: {{ .Values.nvrStorage.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.nvrStorage.size }}
+{{- end }}

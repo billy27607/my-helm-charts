@@ -1,0 +1,39 @@
+{{- if and .Values.persistence.enabled (eq .Values.persistence.type "hostPath") }}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ include "scrypted.fullname" . }}
+  labels:
+    {{- include "scrypted.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scrypted
+spec:
+  capacity:
+    storage: {{ .Values.persistence.size }}
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: {{ include "scrypted.fullname" . }}
+  hostPath:
+    path: {{ .Values.persistence.hostPath }}
+    type: DirectoryOrCreate
+{{- end }}
+---
+{{- if and .Values.nvrStorage.enabled (eq .Values.nvrStorage.type "hostPath") }}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ include "scrypted.fullname" . }}-nvr
+  labels:
+    {{- include "scrypted.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nvr
+spec:
+  capacity:
+    storage: {{ .Values.nvrStorage.size }}
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: {{ include "scrypted.fullname" . }}-nvr
+  hostPath:
+    path: {{ .Values.nvrStorage.hostPath }}
+    type: DirectoryOrCreate
+{{- end }}

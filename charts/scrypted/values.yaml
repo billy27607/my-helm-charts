@@ -1,0 +1,76 @@
+image:
+  repository: ghcr.io/koush/scrypted
+  # Options: ghcr.io/koush/scrypted, ghcr.io/koush/scrypted:nvidia,
+  #          ghcr.io/koush/scrypted:intel, ghcr.io/koush/scrypted:lite
+  tag: latest
+  pullPolicy: Always
+
+hostNetwork: true
+
+# USB and hardware device access (requires privileged: true)
+devices:
+  usb: false          # /dev/bus/usb for Coral TPU, etc.
+  dri: false          # /dev/dri for hardware video decoding
+  kfd: false          # /dev/kfd for AMD GPU
+  # Serial/character devices (zwave, zigbee, etc.)
+  serial:
+    - /dev/ttyACM0    # zwave usb serial
+  # Additional devices (coral PCI, etc.)
+  extra: []
+  # - /dev/apex_0     # coral PCI
+
+# Environment variables
+env:
+  # Avahi discovery inside container
+  avahiEnabled: false
+  # Custom environment variables
+  extra: []
+  # - name: SCRYPTED_NVR_VOLUME
+  #   value: /nvr
+
+# Scrypted database persistence
+persistence:
+  enabled: true
+  type: hostPath  # hostPath (edge) or pvc (cluster)
+  hostPath: /var/lib/scrypted
+  size: 10Gi
+  storageClass: ""
+
+# Optional NVR storage for recordings
+nvrStorage:
+  enabled: false
+  type: hostPath  # hostPath, pvc, or nfs
+  hostPath: /mnt/media/video
+  size: 100Gi
+  storageClass: ""
+  # NFS settings (when type: nfs)
+  nfs:
+    server: ""
+    path: ""
+
+# Service (useful when not using hostNetwork)
+service:
+  enabled: false
+  type: ClusterIP
+  port: 10443
+
+# Disable logging to reduce flash wear (scrypted has in-memory logging)
+logging:
+  enabled: false
+
+securityContext:
+  privileged: true   # Required for device access (serial, USB, etc.)
+
+# Intel GPU via device plugin (requires intel-device-plugins-operator)
+intelGpu:
+  enabled: true
+  # Number of GPU instances to request
+  count: 1
+
+resources: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

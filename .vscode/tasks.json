@@ -3,9 +3,9 @@
   "inputs": [
     {
       "id": "chartName",
-      "type": "promptString",
-      "description": "Chart name (folder name under charts/)",
-      "default": "iperf3"
+      "type": "pickString",
+      "description": "Select a chart",
+      "options": ["homebridge", "iperf3", "rtl-sdr", "hdhomerun-app-proxy", "hdhomerun-tuner-proxy", "frontst", "xcarve", "scrypted"]
     },
     {
       "id": "releaseName",
@@ -132,6 +132,17 @@
         "clear": false
       },
       "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "helm: Restart",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-restart ${input:releaseName}",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
       "problemMatcher": []
     },
     {
