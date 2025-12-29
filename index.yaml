@@ -94,4 +94,15 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/iperf3-0.1.2/iperf3-0.1.2.tgz
     version: 0.1.2
-generated: "2025-12-24T16:48:51.801629481Z"
+  scrypted:
+  - apiVersion: v2
+    appVersion: latest
+    created: "2025-12-29T21:34:08.404723966Z"
+    description: A Helm chart for Scrypted NVR home video integration
+    digest: 504dac2f5a28e3f293df5d293af44f99d37b13de4b0cfb7a0a8735d328370663
+    name: scrypted
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/scrypted-0.1.0/scrypted-0.1.0.tgz
+    version: 0.1.0
+generated: "2025-12-29T21:34:08.404746327Z"
