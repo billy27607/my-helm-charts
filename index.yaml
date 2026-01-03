@@ -1,5 +1,16 @@
 apiVersion: v1
 entries:
+  firefox-remote:
+  - apiVersion: v2
+    appVersion: latest
+    created: "2026-01-03T18:20:13.309924339Z"
+    description: Remote Firefox via noVNC with optional ingress
+    digest: e3e3468b4e23a4f76688356022392564242a67825b83d0f66b2c5789f28adc69
+    name: firefox-remote
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/firefox-remote-0.1.0/firefox-remote-0.1.0.tgz
+    version: 0.1.0
   frontst:
   - apiVersion: v2
     appVersion: latest
@@ -147,4 +158,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.1.0/xcarve-0.1.0.tgz
     version: 0.1.0
-generated: "2025-12-29T21:39:02.107289009Z"
+generated: "2026-01-03T18:20:13.309948989Z"
