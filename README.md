@@ -26,6 +26,7 @@ helm repo update
 | Chart | Description |
 |-------|-------------|
 | [iperf3](./charts/iperf3) | Network performance testing tool |
+| [firefox-remote](./charts/firefox-remote) | Remote Firefox via noVNC with ingress-ready defaults |
 
 ## Development
 

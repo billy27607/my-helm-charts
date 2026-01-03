@@ -1,0 +1,6 @@
+apiVersion: v2
+name: firefox-remote
+description: Remote Firefox via noVNC with optional ingress
+version: 0.1.0
+appVersion: "latest"
+type: application

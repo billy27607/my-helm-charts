@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "firefox-remote.fullname" . }}
+  labels:
+    {{- include "firefox-remote.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "firefox-remote.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "firefox-remote.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.hostname }}
+      hostname: {{ .Values.hostname }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: firefox
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default "latest" }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: TZ
+              value: {{ .Values.env.timezone | quote }}
+            - name: PUID
+              value: {{ .Values.env.puid | quote }}
+            - name: PGID
+              value: {{ .Values.env.pgid | quote }}
+            - name: DISPLAY_WIDTH
+              value: {{ .Values.env.displayWidth | quote }}
+            - name: DISPLAY_HEIGHT
+              value: {{ .Values.env.displayHeight | quote }}
+            {{- range .Values.env.extraEnv }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+            {{- if .Values.service.vnc.enabled }}
+            - name: vnc
+              containerPort: {{ .Values.service.vnc.port }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: {{ .Values.persistence.mountPath }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        - name: nginx-tls
+          image: nginx:alpine
+          ports:
+            - name: https
+              containerPort: 443
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+            - name: tls-cert
+              mountPath: /etc/nginx/ssl
+              readOnly: true
+      volumes:
+        - name: config
+          {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim }}
+          {{- else if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "firefox-remote.fullname" . }}-config
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: nginx-config
+          configMap:
+            name: {{ include "firefox-remote.fullname" . }}-nginx
+        - name: tls-cert
+          secret:
+            secretName: {{ .Values.ingress.tls.secretName | default (printf "%s-tls" (include "firefox-remote.fullname" .)) }}

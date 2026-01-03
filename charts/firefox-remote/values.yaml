@@ -1,0 +1,69 @@
+replicaCount: 1
+
+image:
+  repository: lscr.io/linuxserver/firefox
+  pullPolicy: IfNotPresent
+  tag: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Optional pod hostname (helps with stateful apps/logging); empty = let K8s choose
+hostname: ""
+
+service:
+  type: NodePort
+  port: 3000
+  nodePort: 30443
+  vnc:
+    enabled: true
+    port: 3001
+    nodePort: null
+
+ingress:
+  enabled: false  # disabled by default; using NodePort instead
+  className: ""
+  annotations: {}
+  entrypoints:
+    - https-20443   # if enabled, targets high-port Traefik entrypoint
+  hosts:
+    - host: firefox.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    enabled: true
+    secretName: ""              # if empty and selfSigned.enabled, uses <fullname>-tls
+    hosts: []                    # defaults to ingress.hosts[*].host if empty
+    selfSigned:
+      enabled: true
+      validDays: 365
+
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 5Gi
+  storageClass: ""
+  mountPath: /config
+
+podSecurityContext: {}
+
+securityContext: {}
+
+env:
+  timezone: UTC
+  puid: 1000
+  pgid: 1000
+  displayWidth: 1920
+  displayHeight: 1080
+  extraEnv: []
+
+resources: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

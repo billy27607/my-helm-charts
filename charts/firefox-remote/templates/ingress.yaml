@@ -1,0 +1,53 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "firefox-remote.fullname" . }}
+  labels:
+    {{- include "firefox-remote.labels" . | nindent 4 }}
+  {{- $ann := dict }}
+  {{- if .Values.ingress.annotations }}
+  {{- $_ := merge $ann .Values.ingress.annotations }}
+  {{- end }}
+  {{- if and .Values.ingress.entrypoints (not (empty .Values.ingress.entrypoints)) }}
+  {{- $_ := set $ann "traefik.ingress.kubernetes.io/router.entrypoints" (join "," .Values.ingress.entrypoints) }}
+  {{- end }}
+  {{- if $ann }}
+  annotations:
+    {{- toYaml $ann | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- $tlsHosts := .Values.ingress.tls.hosts | default (list) }}
+  {{- if not $tlsHosts }}
+  {{- $tlsHosts = list }}
+  {{- range .Values.ingress.hosts }}
+  {{- $tlsHosts = append $tlsHosts .host }}
+  {{- end }}
+  {{- end }}
+  {{- $secretName := .Values.ingress.tls.secretName | default (printf "%s-tls" (include "firefox-remote.fullname" .)) }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    {{- $paths := .paths | default (list (dict "path" "/" "pathType" "Prefix")) }}
+    - host: {{ .host }}
+      http:
+        paths:
+          {{- range $paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "firefox-remote.fullname" $ }}
+                port:
+                  number: {{ $.Values.service.port }}
+          {{- end }}
+    {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        {{- toYaml $tlsHosts | nindent 8 }}
+      secretName: {{ $secretName }}
+  {{- end }}
+{{- end }}
