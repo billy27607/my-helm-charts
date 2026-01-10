@@ -24,7 +24,7 @@ devices:
   extra:              # Additional character devices
     - /dev/apex_0     # Google Coral PCIe TPU
 ```
-Requires `securityContext.privileged: true` for device access. See [scrypted/values.yaml](charts/scrypted/values.yaml) for reference.
+Requires `securityContext.privileged: true` for device access. See charts/scrypted/values.yaml for reference.
 
 **Common devices in this homelab:**
 - **Coral TPU** (USB): `devices.usb: true` for ML object detection in Scrypted
@@ -41,7 +41,7 @@ The `frontst` chart bundles 4 services (Homebridge, Mosquitto, Scrypted, Z-Wave 
 ## Development Workflows
 
 ### Local Testing with k8s-helpers.sh
-**Never kubectl commands directly in tasks** - use [scripts/k8s-helpers.sh](scripts/k8s-helpers.sh):
+**Never kubectl commands directly in tasks** - use scripts/k8s-helpers.sh:
 
 ```bash
 # Helm workflows (preferred)
@@ -156,7 +156,7 @@ helm create my-service
 
 ### Migrating from Docker Compose
 1. Copy service config from `scrypted-compose.yaml` or similar
-2. Create chart structure matching [scrypted/](charts/scrypted) for single services or [frontst/](charts/frontst) for multi-component
+2. Create chart structure matching charts/scrypted for single services or charts/frontst for multi-component
 3. Key translations:
    - `network_mode: host` → `hostNetwork: true`
    - `volumes` → `persistence.hostPath` or `volumeMounts`
