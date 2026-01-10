@@ -170,9 +170,11 @@ case "$COMMAND" in
             exit 1
         fi
 
-        # Default to monitoring namespace if not specified
+        # Default to monitoring namespace only for prometheus and headlamp charts
         if [[ ! " ${EXTRA_ARGS[*]} " =~ " --namespace " ]] && [[ ! " ${EXTRA_ARGS[*]} " =~ " -n " ]]; then
-            EXTRA_ARGS+=("--namespace" "monitoring")
+            if [[ "$CHART_NAME" == "prometheus" || "$CHART_NAME" == "headlamp" ]]; then
+                EXTRA_ARGS+=("--namespace" "monitoring")
+            fi
         fi
 
         echo -e "${BLUE}=== Installing Helm chart: $CHART_NAME ===${NC}"
@@ -208,9 +210,11 @@ case "$COMMAND" in
             exit 1
         fi
 
-        # Default to monitoring namespace if not specified
+        # Default to monitoring namespace only for prometheus and headlamp charts
         if [[ ! " ${EXTRA_ARGS[*]} " =~ " --namespace " ]] && [[ ! " ${EXTRA_ARGS[*]} " =~ " -n " ]]; then
-            EXTRA_ARGS+=("--namespace" "monitoring")
+            if [[ "$CHART_NAME" == "prometheus" || "$CHART_NAME" == "headlamp" ]]; then
+                EXTRA_ARGS+=("--namespace" "monitoring")
+            fi
         fi
 
         if [[ ! -d "$CHART_PATH" ]]; then
