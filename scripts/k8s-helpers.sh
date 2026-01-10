@@ -155,19 +155,24 @@ case "$COMMAND" in
         CHART_NAME="${2:-}"
         RELEASE_NAME="${3:-$CHART_NAME}"
         CHART_PATH="$CHARTS_DIR/$CHART_NAME"
-        # Capture extra arguments (--set, --values, etc.) starting from arg 4
+        # Capture extra arguments (--set, --values, --namespace, etc.) starting from arg 4
         shift 3 2>/dev/null || shift $#
         EXTRA_ARGS=("$@")
 
         if [[ -z "$CHART_NAME" ]]; then
             echo -e "${RED}Error: Chart name required${NC}"
-            echo "Usage: $0 helm-install <chart-name> [release-name] [--set key=value...]"
+            echo "Usage: $0 helm-install <chart-name> [release-name] [--set key=value...] [--namespace namespace]"
             exit 1
         fi
 
         if [[ ! -d "$CHART_PATH" ]]; then
             echo -e "${RED}Error: Chart not found at $CHART_PATH${NC}"
             exit 1
+        fi
+
+        # Default to monitoring namespace if not specified
+        if [[ ! " ${EXTRA_ARGS[*]} " =~ " --namespace " ]] && [[ ! " ${EXTRA_ARGS[*]} " =~ " -n " ]]; then
+            EXTRA_ARGS+=("--namespace" "monitoring")
         fi
 
         echo -e "${BLUE}=== Installing Helm chart: $CHART_NAME ===${NC}"
@@ -177,7 +182,7 @@ case "$COMMAND" in
         fi
         echo ""
 
-        helm install "$RELEASE_NAME" "$CHART_PATH" --wait "${EXTRA_ARGS[@]}"
+        helm install "$RELEASE_NAME" "$CHART_PATH" --create-namespace --wait "${EXTRA_ARGS[@]}"
 
         echo -e "\n${GREEN}Installation complete!${NC}"
         echo -e "\n${BLUE}=== Release Status ===${NC}"
@@ -193,14 +198,19 @@ case "$COMMAND" in
         CHART_NAME="${2:-}"
         RELEASE_NAME="${3:-$CHART_NAME}"
         CHART_PATH="$CHARTS_DIR/$CHART_NAME"
-        # Capture extra arguments (--set, --values, etc.) starting from arg 4
+        # Capture extra arguments (--set, --values, --namespace, etc.) starting from arg 4
         shift 3 2>/dev/null || shift $#
         EXTRA_ARGS=("$@")
 
         if [[ -z "$CHART_NAME" ]]; then
             echo -e "${RED}Error: Chart name required${NC}"
-            echo "Usage: $0 helm-upgrade <chart-name> [release-name] [--set key=value...]"
+            echo "Usage: $0 helm-upgrade <chart-name> [release-name] [--set key=value...] [--namespace namespace]"
             exit 1
+        fi
+
+        # Default to monitoring namespace if not specified
+        if [[ ! " ${EXTRA_ARGS[*]} " =~ " --namespace " ]] && [[ ! " ${EXTRA_ARGS[*]} " =~ " -n " ]]; then
+            EXTRA_ARGS+=("--namespace" "monitoring")
         fi
 
         if [[ ! -d "$CHART_PATH" ]]; then

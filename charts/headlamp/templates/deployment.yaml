@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "headlamp.fullname" . }}
+  labels:
+    {{- include "headlamp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "headlamp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "headlamp.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      {{- if .Values.rbac.create }}
+      serviceAccountName: {{ include "headlamp.serviceAccountName" . }}
+      {{- end }}
+      {{- if .Values.hostKubeconfig.enabled }}
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+      {{- end }}
+      containers:
+        - name: headlamp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if or .Values.env.baseURL .Values.env.extra .Values.hostKubeconfig.enabled }}
+          env:
+            {{- if .Values.hostKubeconfig.enabled }}
+            - name: KUBECONFIG
+              value: /etc/kubernetes/kubeconfig.yaml
+            {{- end }}
+            {{- if .Values.env.baseURL }}
+            - name: HEADLAMP_BASE_URL
+              value: {{ .Values.env.baseURL | quote }}
+            {{- end }}
+            {{- with .Values.env.extra }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          volumeMounts:
+            {{- if .Values.hostKubeconfig.enabled }}
+            - name: kubeconfig
+              mountPath: /etc/kubernetes/kubeconfig.yaml
+              readOnly: true
+            {{- end }}
+            {{- if .Values.persistence.enabled }}
+            - name: plugins
+              mountPath: {{ .Values.persistence.mountPath }}
+            {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        {{- if .Values.hostKubeconfig.enabled }}
+        - name: kubeconfig
+          hostPath:
+            path: {{ .Values.hostKubeconfig.path }}
+            type: File
+        {{- end }}
+        {{- if .Values.persistence.enabled }}
+        - name: plugins
+          persistentVolumeClaim:
+            claimName: {{ include "headlamp.fullname" . }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
