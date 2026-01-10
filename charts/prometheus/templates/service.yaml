@@ -4,6 +4,9 @@ metadata:
   name: {{ include "prometheus.fullname" . }}
   labels:
     {{- include "prometheus.labels" . | nindent 4 }}
+  annotations:
+    # Headlamp Prometheus plugin discovery
+    headlamp.io/prometheus: "true"
 spec:
   type: {{ .Values.service.type }}
   ports:
