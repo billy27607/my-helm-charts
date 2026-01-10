@@ -29,8 +29,8 @@ usb:
 securityContext:
   privileged: true
 
-# Host network mode (alternative to service for direct access)
-hostNetwork: false
+# Host network mode - enabled by default for direct access to rtl_tcp port
+hostNetwork: true
 
 # Node selection for targeting specific hardware
 nodeSelector: {}
