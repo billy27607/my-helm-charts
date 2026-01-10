@@ -45,18 +45,18 @@ The `frontst` chart bundles 4 services (Homebridge, Mosquitto, Scrypted, Z-Wave 
 
 ```bash
 # Helm workflows (preferred)
-./scripts/k8s-helpers.sh helm-install scrypted my-release --set hostNetwork=false
-./scripts/k8s-helpers.sh helm-upgrade scrypted my-release --values custom.yaml
-./scripts/k8s-helpers.sh helm-status my-release
-./scripts/k8s-helpers.sh helm-logs my-release     # Auto-detects pod labels
-./scripts/k8s-helpers.sh helm-restart my-release  # Rollout restart
-./scripts/k8s-helpers.sh helm-uninstall my-release
+k8s-helpers.sh helm-install scrypted my-release --set hostNetwork=false
+k8s-helpers.sh helm-upgrade scrypted my-release --values custom.yaml
+k8s-helpers.sh helm-status my-release
+k8s-helpers.sh helm-logs my-release     # Auto-detects pod labels
+k8s-helpers.sh helm-restart my-release  # Rollout restart
+k8s-helpers.sh helm-uninstall my-release
 
 # Direct YAML workflows (legacy)
-./scripts/k8s-helpers.sh status deployment.yaml
-./scripts/k8s-helpers.sh logs deployment.yaml     # Extracts app selector
-./scripts/k8s-helpers.sh events deployment.yaml
-./scripts/k8s-helpers.sh resources deployment.yaml
+k8s-helpers.sh status deployment.yaml
+k8s-helpers.sh logs deployment.yaml     # Extracts app selector
+k8s-helpers.sh events deployment.yaml
+k8s-helpers.sh resources deployment.yaml
 ```
 
 ### VS Code Tasks
@@ -151,7 +151,7 @@ Edge deployments default to `hostPath`. For cluster setups:
 cd charts/
 helm create my-service
 # Edit Chart.yaml, values.yaml, templates/
-./scripts/k8s-helpers.sh helm-install my-service test-release
+k8s-helpers.sh helm-install my-service test-release
 ```
 
 ### Migrating from Docker Compose
@@ -167,14 +167,14 @@ helm create my-service
 ### Chart Testing Workflow
 ```bash
 # Install and watch logs
-./scripts/k8s-helpers.sh helm-install my-chart test-release
-./scripts/k8s-helpers.sh helm-logs test-release
+k8s-helpers.sh helm-install my-chart test-release
+k8s-helpers.sh helm-logs test-release
 
 # Iterate on templates
-./scripts/k8s-helpers.sh helm-upgrade my-chart test-release --set key=value
+k8s-helpers.sh helm-upgrade my-chart test-release --set key=value
 
 # Check status and events
-./scripts/k8s-helpers.sh helm-status test-release
+k8s-helpers.sh helm-status test-release
 kubectl get events --sort-by='.lastTimestamp' | tail -20
 ```
 
