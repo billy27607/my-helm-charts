@@ -45,6 +45,17 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/hdhomerun-tuner-proxy-0.1.0/hdhomerun-tuner-proxy-0.1.0.tgz
     version: 0.1.0
+  headlamp:
+  - apiVersion: v2
+    appVersion: 0.25.1
+    created: "2026-01-10T16:25:35.691811404Z"
+    description: A Helm chart for Headlamp - Kubernetes Web UI
+    digest: 43c7cbc7d6d9dddad7a0218824d42b38a7180a5b26201fad2e48b742240f008e
+    name: headlamp
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/headlamp-0.1.0/headlamp-0.1.0.tgz
+    version: 0.1.0
   homebridge:
   - apiVersion: v2
     appVersion: latest
@@ -117,6 +128,17 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/iperf3-0.1.2/iperf3-0.1.2.tgz
     version: 0.1.2
+  prometheus:
+  - apiVersion: v2
+    appVersion: v2.55.1
+    created: "2026-01-10T16:25:35.808850028Z"
+    description: A Helm chart for Prometheus monitoring
+    digest: 8b89a5d979bb6cadb029f4f6b91e27bca16042b6d91b7142f90597344a7cc1b3
+    name: prometheus
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/prometheus-0.1.0/prometheus-0.1.0.tgz
+    version: 0.1.0
   rtl-sdr:
   - apiVersion: v2
     appVersion: latest
@@ -158,4 +180,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.1.0/xcarve-0.1.0.tgz
     version: 0.1.0
-generated: "2026-01-03T18:20:13.309948989Z"
+generated: "2026-01-10T16:25:35.808870456Z"
