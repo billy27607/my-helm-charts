@@ -14,7 +14,7 @@ service:
 
 # Ingress configuration
 ingress:
-  enabled: false
+  enabled: true
   className: "traefik"
   annotations: {}
     # Use Traefik's wildcard certificate
