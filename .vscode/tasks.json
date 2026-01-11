@@ -5,7 +5,7 @@
       "id": "chartName",
       "type": "pickString",
       "description": "Select a chart",
-      "options": ["homebridge", "iperf3", "rtl-sdr", "hdhomerun-app-proxy", "hdhomerun-tuner-proxy", "prometheus", "frontst", "xcarve", "scrypted", "firefox-remote", "headlamp"]
+      "options": ["homebridge", "iperf3", "rtl-sdr", "hdhomerun-app-proxy", "hdhomerun-tuner-proxy", "prometheus", "xcarve", "scrypted", "firefox-remote", "headlamp"]
     },
     {
       "id": "releaseName",

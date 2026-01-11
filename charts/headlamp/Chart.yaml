@@ -1,6 +1,0 @@
-apiVersion: v2
-name: headlamp
-description: A Helm chart for Headlamp - Kubernetes Web UI
-type: application
-version: 0.1.0
-appVersion: "0.25.1"
