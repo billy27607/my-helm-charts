@@ -27,16 +27,17 @@ FAILED=()
 for CONTEXT in $CONTEXTS; do
     echo -e "${YELLOW}>>> Deploying to cluster: $CONTEXT${NC}"
     
-    # Extract cluster name for label
+    # Extract cluster name for label and hostname
     CLUSTER_NAME=$(echo "$CONTEXT" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
     
-    # Install/upgrade Prometheus with cluster-specific external label
+    # Install/upgrade Prometheus with cluster-specific external label and hostname
     if helm upgrade prometheus "$CHART_PATH" \
         --install \
         --kube-context="$CONTEXT" \
         --create-namespace \
         --namespace monitoring \
         --set config.global.external_labels.cluster="$CLUSTER_NAME" \
+        --set ingress.hosts[0].host="prometheus-${CLUSTER_NAME}.baezw.com" \
         --wait \
         --timeout 2m 2>&1; then
         

@@ -21,7 +21,7 @@ ingress:
     # To use cert-manager instead, add:
     # cert-manager.io/cluster-issuer: letsencrypt-prod
   hosts:
-    - host: prometheus.baezw.com
+    - host: prometheus-default.baezw.com
       paths:
         - path: /
           pathType: Prefix
