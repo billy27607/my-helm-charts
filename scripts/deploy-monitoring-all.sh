@@ -42,10 +42,10 @@ echo -e "${BLUE}=== Deployment Summary ===${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}Successful (${#SUCCESSFUL[@]}):${NC}"
 for ctx in "${SUCCESSFUL[@]}"; do
-    CLUSTER=$(echo "$ctx" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+    NODE_IP=$(kubectl get nodes --context="$ctx" -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null | awk '{print $1}')
     echo -e "  ✓ $ctx"
-    echo -e "    Prometheus: https://prometheus-${CLUSTER}.baezw.com"
-    echo -e "    Headlamp:   https://headlamp-${CLUSTER}.baezw.com"
+    echo -e "    Prometheus: http://${NODE_IP}:30090"
+    echo -e "    Headlamp:   http://${NODE_IP}:30446"
 done
 
 if [ ${#FAILED[@]} -gt 0 ]; then

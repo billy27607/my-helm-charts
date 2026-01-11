@@ -40,9 +40,9 @@ if helm upgrade prometheus "$PROMETHEUS_CHART" \
     --create-namespace \
     --namespace monitoring \
     --set config.global.external_labels.cluster="$CLUSTER_NAME" \
-    --set ingress.hosts[0].host="prometheus-${CLUSTER_NAME}.baezw.com" \
-    --set ingress.hosts[0].paths[0].path="/" \
-    --set ingress.hosts[0].paths[0].pathType="Prefix" \
+    --set ingress.enabled=false \
+    --set service.type=NodePort \
+    --set service.nodePort=30090 \
     --wait \
     --timeout 3m; then
     echo -e "${GREEN}✓ Prometheus deployed successfully${NC}\n"
@@ -59,12 +59,10 @@ if helm upgrade headlamp "$HEADLAMP_CHART" \
     --namespace monitoring \
     --set hostNetwork=false \
     --set hostKubeconfig.enabled=false \
-    --set ingress.enabled=true \
-    --set ingress.hosts[0].host="headlamp-${CLUSTER_NAME}.baezw.com" \
-    --set ingress.hosts[0].paths[0].path="/" \
-    --set ingress.hosts[0].paths[0].pathType="Prefix" \
-    --set service.type=ClusterIP \
-    --set nodePort.enabled=false \
+    --set ingress.enabled=false \
+    --set service.type=NodePort \
+    --set nodePort.enabled=true \
+    --set nodePort.port=30446 \
     --wait \
     --timeout 3m; then
     echo -e "${GREEN}✓ Headlamp deployed successfully${NC}\n"
@@ -73,8 +71,11 @@ else
     exit 1
 fi
 
+# Get node IP
+NODE_IP=$(kubectl get nodes --context="$CONTEXT" -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' | awk '{print $1}')
+
 echo -e "\n${GREEN}=== Monitoring stack deployment complete! ===${NC}"
-echo -e "\n${BLUE}Access URLs:${NC}"
-echo -e "  Prometheus: ${YELLOW}https://prometheus-${CLUSTER_NAME}.baezw.com${NC}"
-echo -e "  Headlamp:   ${YELLOW}https://headlamp-${CLUSTER_NAME}.baezw.com${NC}"
+echo -e "\n${BLUE}Access URLs (replace <node-ip> with actual node IP if multi-node):${NC}"
+echo -e "  Prometheus: ${YELLOW}http://${NODE_IP}:30090${NC}"
+echo -e "  Headlamp:   ${YELLOW}http://${NODE_IP}:30446${NC}"
 echo -e "\n${BLUE}Note:${NC} Headlamp will auto-discover Prometheus at: http://prometheus.monitoring.svc.cluster.local:9090"
