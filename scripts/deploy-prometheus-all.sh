@@ -38,6 +38,8 @@ for CONTEXT in $CONTEXTS; do
         --namespace monitoring \
         --set config.global.external_labels.cluster="$CLUSTER_NAME" \
         --set ingress.hosts[0].host="prometheus-${CLUSTER_NAME}.baezw.com" \
+        --set ingress.hosts[0].paths[0].path="/" \
+        --set ingress.hosts[0].paths[0].pathType="Prefix" \
         --wait \
         --timeout 2m 2>&1; then
         
