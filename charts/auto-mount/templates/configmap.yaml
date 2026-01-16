@@ -262,11 +262,11 @@ data:
       RIP_STATE="/tmp/cd_rip_state"
       # Skip if already ripping OR if state shows rip phase completed (encoding may still be running)
       if [ -f "$RIP_FLAG" ]; then
-        echo "DEBUG: Rip in progress (flag exists), skipping disc check"
+        : # Rip in progress, skipping disc check
       elif [ -f "$RIP_STATE" ]; then
         # State file exists - check what state we're in
         if grep -q "RIP_PHASE_COMPLETED=YES" "$RIP_STATE" 2>/dev/null; then
-          echo "DEBUG: Rip completed, waiting for disc removal"
+          : # Rip completed, waiting for disc removal
         elif grep -q "STARTING" "$RIP_STATE" 2>/dev/null; then
           # Check if the rip started recently (within last 10 minutes = 600 seconds)
           START_TIME=$(grep "TIMESTAMP_START=" "$RIP_STATE" 2>/dev/null | cut -d= -f2)
@@ -274,23 +274,22 @@ data:
           if [ -n "$START_TIME" ]; then
             TIME_DIFF=$((CURRENT_TIME - START_TIME))
             if [ $TIME_DIFF -lt 600 ]; then
-              echo "DEBUG: Rip started ${TIME_DIFF}s ago, still active (no restart)"
+              : # Rip started recently, still active
             else
               echo "WARNING: Rip started ${TIME_DIFF}s ago but flag missing - possible crash"
             fi
           fi
         fi
       elif [ -b /dev/sr0 ]; then
-        echo "DEBUG: /dev/sr0 exists and not ripping, checking for disc..."
         # Check if disc is present - try cdparanoia first for audio, then dd for data
         # Note: cdparanoia needs time to spin up the drive, 10s timeout allows for this
         DISC_PRESENT=false
         if timeout 10 cdparanoia -Q -d /dev/sr0 2>&1 | grep -q "Table of contents"; then
           DISC_PRESENT=true
-          echo "DEBUG: Audio CD detected!"
+          echo "Audio CD detected, starting rip..."
         elif timeout 5 dd if=/dev/sr0 bs=2048 count=1 of=/dev/null 2>/dev/null; then
           DISC_PRESENT=true
-          echo "DEBUG: Data disc detected!"
+          echo "Data disc detected"
         fi
         
         if [ "$DISC_PRESENT" = "true" ]; then
@@ -735,8 +734,6 @@ data:
         OPTICAL_HAD_CONNECTION=false
         OPTICAL_IDLE_CYCLES=0
       fi
-      {{- else }}
-      echo "CD ripping disabled in configuration"
       {{- end }}
       
       sleep 5

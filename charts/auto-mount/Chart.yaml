@@ -2,5 +2,5 @@ apiVersion: v2
 name: auto-mount
 description: Auto-mount hot-swap drives and optical discs with SMB sharing and simple eject UI
 type: application
-version: 0.1.50
+version: 0.1.51
 appVersion: "1.0"
