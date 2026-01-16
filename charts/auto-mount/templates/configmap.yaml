@@ -704,29 +704,35 @@ data:
           # Active connection detected
           HOTSWAP_HAD_CONNECTION=true
           HOTSWAP_IDLE_CYCLES=0
-        elif [ "$HOTSWAP_HAD_CONNECTION" = "true" ] && [ "$HOTSWAP_EJECTED" = "false" ]; then
-          # Had a connection before, now it's gone - unmount immediately (eject)
-          HOTSWAP_IDLE_CYCLES=$((HOTSWAP_IDLE_CYCLES + 1))
-          # Wait just 1 cycle (5 seconds) to avoid race conditions
-          if [ $HOTSWAP_IDLE_CYCLES -ge 1 ]; then
-            echo "Last SMB connection closed - ejecting hotswap drive"
-            for mount_point in {{ .Values.hotswapPath }}/partition*; do
-              if mount | grep -q " on $mount_point"; then
-                umount "$mount_point" 2>/dev/null && echo "Unmounted $mount_point (ejected)"
-                rmdir "$mount_point" 2>/dev/null
+        else
+          # No active connection
+          if [ "$HOTSWAP_HAD_CONNECTION" = "true" ] && [ "$HOTSWAP_EJECTED" = "false" ]; then
+            # Had a connection before, now it's gone - unmount immediately (eject)
+            HOTSWAP_IDLE_CYCLES=$((HOTSWAP_IDLE_CYCLES + 1))
+            # Wait just 1 cycle (5 seconds) to avoid race conditions
+            if [ $HOTSWAP_IDLE_CYCLES -ge 1 ]; then
+              echo "Last SMB connection closed - ejecting hotswap drive"
+              for mount_point in {{ .Values.hotswapPath }}/partition*; do
+                if mount | grep -q " on $mount_point"; then
+                  umount "$mount_point" 2>/dev/null && echo "Unmounted $mount_point (ejected)"
+                  rmdir "$mount_point" 2>/dev/null
+                fi
+              done
+              # Clean up any remaining empty partition directories
+              for mount_point in {{ .Values.hotswapPath }}/partition*; do
+                if [ -d "$mount_point" ]; then
+                  rmdir "$mount_point" 2>/dev/null
+                fi
+              done
+              if [ "$HOTSWAP_SHARE_ENABLED" = "true" ]; then
+                echo "Disabling hotswap share (ejected - waiting for physical removal)"
+                update_share "hotswap" "no"
+                HOTSWAP_SHARE_ENABLED=false
               fi
-            done
-            # Clean up any remaining empty partition directories
-            for mount_point in {{ .Values.hotswapPath }}/partition*; do
-              if [ -d "$mount_point" ]; then
-                rmdir "$mount_point" 2>/dev/null
-              fi
-            done
-            echo "Disabling hotswap share (ejected - waiting for physical removal)"
-            update_share "hotswap" "no"
-            HOTSWAP_EJECTED=true
-            HOTSWAP_HAD_CONNECTION=false
-            HOTSWAP_IDLE_CYCLES=0
+              HOTSWAP_EJECTED=true
+              HOTSWAP_HAD_CONNECTION=false
+              HOTSWAP_IDLE_CYCLES=0
+            fi
           fi
         fi
         # If HOTSWAP_HAD_CONNECTION=false, do nothing - keep mounted until first connection
