@@ -9,8 +9,8 @@ data:
     #!/bin/sh
     set -e
     
-    # Install required packages (removed avahi, using wsdd instead for SMB discovery)
-    apk add --no-cache samba python3 py3-pip bash util-linux e2fsprogs procps exfat-utils udftools cdrkit cdparanoia flac curl jq wget libdiscid cd-discid
+    # Install required packages
+    apk add --no-cache samba python3 py3-pip bash util-linux e2fsprogs procps exfat-utils udftools cdrkit cdparanoia flac curl jq wget libdiscid cd-discid avahi avahi-tools dbus
     
     # Install wsdd for WS-Discovery (better SMB discovery on modern Windows/macOS)
     wget -O /usr/local/bin/wsdd https://raw.githubusercontent.com/christgau/wsdd/master/src/wsdd.py
@@ -113,7 +113,33 @@ data:
     # Enable the user
     smbpasswd -e {{ .Values.samba.username }}
     
-    # Start wsdd for WS-Discovery (better network discovery)
+    # Configure Avahi for SMB service discovery
+    mkdir -p /etc/avahi/services
+    cat > /etc/avahi/services/smb.service <<'AVAHIEOF'
+    <?xml version="1.0" standalone='no'?>
+    <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+    <service-group>
+      <name replace-wildcards="yes">%h</name>
+      <service>
+        <type>_smb._tcp</type>
+        <port>445</port>
+      </service>
+      <service>
+        <type>_device-info._tcp</type>
+        <port>0</port>
+        <txt-record>model=RackMac</txt-record>
+      </service>
+    </service-group>
+    AVAHIEOF
+
+    # Start D-Bus (required by Avahi)
+    mkdir -p /var/run/dbus
+    dbus-daemon --system
+    
+    # Start Avahi daemon for Bonjour/mDNS (macOS Finder Locations)
+    avahi-daemon -D
+    
+    # Start wsdd for WS-Discovery (Windows network discovery)
     /usr/local/bin/wsdd -d WORKGROUP -n AUTOMOUNT &
     
     # Start Samba
