@@ -157,7 +157,11 @@ case "$COMMAND" in
         CHART_PATH="$CHARTS_DIR/$CHART_NAME"
         # Capture extra arguments (--set, --values, --namespace, etc.) starting from arg 4
         shift 3 2>/dev/null || shift $#
-        EXTRA_ARGS=("$@")
+        # Filter out empty strings from arguments
+        EXTRA_ARGS=()
+        for arg in "$@"; do
+            [[ -n "$arg" ]] && EXTRA_ARGS+=("$arg")
+        done
 
         if [[ -z "$CHART_NAME" ]]; then
             echo -e "${RED}Error: Chart name required${NC}"
@@ -188,7 +192,20 @@ case "$COMMAND" in
 
         echo -e "\n${GREEN}Installation complete!${NC}"
         echo -e "\n${BLUE}=== Release Status ===${NC}"
-        helm status "$RELEASE_NAME"
+        # Extract namespace from EXTRA_ARGS for status command
+        NAMESPACE_ARG=()
+        for i in "${!EXTRA_ARGS[@]}"; do
+            if [[ "${EXTRA_ARGS[$i]}" == "--namespace="* || "${EXTRA_ARGS[$i]}" == "-n="* ]]; then
+                # Format: --namespace=value
+                NAMESPACE_ARG=("${EXTRA_ARGS[$i]}")
+                break
+            elif [[ "${EXTRA_ARGS[$i]}" == "--namespace" || "${EXTRA_ARGS[$i]}" == "-n" ]]; then
+                # Format: --namespace value
+                NAMESPACE_ARG=("${EXTRA_ARGS[$i]}" "${EXTRA_ARGS[$((i+1))]}")
+                break
+            fi
+        done
+        helm status "$RELEASE_NAME" "${NAMESPACE_ARG[@]}"
         ;;
 
     helm-upgrade)
@@ -202,7 +219,11 @@ case "$COMMAND" in
         CHART_PATH="$CHARTS_DIR/$CHART_NAME"
         # Capture extra arguments (--set, --values, --namespace, etc.) starting from arg 4
         shift 3 2>/dev/null || shift $#
-        EXTRA_ARGS=("$@")
+        # Filter out empty strings from arguments
+        EXTRA_ARGS=()
+        for arg in "$@"; do
+            [[ -n "$arg" ]] && EXTRA_ARGS+=("$arg")
+        done
 
         if [[ -z "$CHART_NAME" ]]; then
             echo -e "${RED}Error: Chart name required${NC}"
@@ -250,7 +271,20 @@ case "$COMMAND" in
 
         echo -e "\n${GREEN}Upgrade complete!${NC}"
         echo -e "\n${BLUE}=== Release Status ===${NC}"
-        helm status "$RELEASE_NAME"
+        # Extract namespace from EXTRA_ARGS for status command
+        NAMESPACE_ARG=()
+        for i in "${!EXTRA_ARGS[@]}"; do
+            if [[ "${EXTRA_ARGS[$i]}" == "--namespace="* || "${EXTRA_ARGS[$i]}" == "-n="* ]]; then
+                # Format: --namespace=value
+                NAMESPACE_ARG=("${EXTRA_ARGS[$i]}")
+                break
+            elif [[ "${EXTRA_ARGS[$i]}" == "--namespace" || "${EXTRA_ARGS[$i]}" == "-n" ]]; then
+                # Format: --namespace value
+                NAMESPACE_ARG=("${EXTRA_ARGS[$i]}" "${EXTRA_ARGS[$((i+1))]}")
+                break
+            fi
+        done
+        helm status "$RELEASE_NAME" "${NAMESPACE_ARG[@]}"
         ;;
 
     helm-status)
@@ -260,23 +294,38 @@ case "$COMMAND" in
         fi
 
         RELEASE_NAME="${2:-}"
+        # Capture extra arguments (--namespace, etc.) starting from arg 3
+        shift 2 2>/dev/null || shift $#
+        # Filter out empty strings from arguments
+        EXTRA_ARGS=()
+        for arg in "$@"; do
+            [[ -n "$arg" ]] && EXTRA_ARGS+=("$arg")
+        done
 
         if [[ -z "$RELEASE_NAME" ]]; then
             echo -e "${RED}Error: Release name required${NC}"
-            echo "Usage: $0 helm-status <release-name>"
+            echo "Usage: $0 helm-status <release-name> [--namespace namespace]"
             exit 1
         fi
 
         echo -e "${BLUE}=== Helm Release Status: $RELEASE_NAME ===${NC}\n"
-        helm status "$RELEASE_NAME"
+        helm status "$RELEASE_NAME" "${EXTRA_ARGS[@]}"
 
         echo -e "\n${BLUE}=== Deployed Resources ===${NC}"
-        helm get manifest "$RELEASE_NAME" | kubectl get -f - 2>/dev/null || echo "Could not get resources"
+        helm get manifest "$RELEASE_NAME" "${EXTRA_ARGS[@]}" | kubectl get -f - 2>/dev/null || echo "Could not get resources"
 
         echo -e "\n${BLUE}=== Pod Status ===${NC}"
+        # Extract namespace for kubectl commands
+        NAMESPACE="default"
+        for i in "${!EXTRA_ARGS[@]}"; do
+            if [[ "${EXTRA_ARGS[$i]}" == "--namespace" || "${EXTRA_ARGS[$i]}" == "-n" ]]; then
+                NAMESPACE="${EXTRA_ARGS[$((i+1))]}"
+                break
+            fi
+        done
         # Get pods from the release
-        kubectl get pods -l "app.kubernetes.io/instance=$RELEASE_NAME" -o wide 2>/dev/null || \
-        kubectl get pods -l "app=$RELEASE_NAME-server" -o wide 2>/dev/null || \
+        kubectl get pods -n "$NAMESPACE" -l "app.kubernetes.io/instance=$RELEASE_NAME" -o wide 2>/dev/null || \
+        kubectl get pods -n "$NAMESPACE" -l "app=$RELEASE_NAME-server" -o wide 2>/dev/null || \
         echo "No pods found for release"
         ;;
 
@@ -287,67 +336,99 @@ case "$COMMAND" in
         fi
 
         RELEASE_NAME="${2:-}"
+        # Capture extra arguments (--namespace, etc.) starting from arg 3
+        shift 2 2>/dev/null || shift $#
+        # Filter out empty strings from arguments
+        EXTRA_ARGS=()
+        for arg in "$@"; do
+            [[ -n "$arg" ]] && EXTRA_ARGS+=("$arg")
+        done
 
         if [[ -z "$RELEASE_NAME" ]]; then
             echo -e "${RED}Error: Release name required${NC}"
-            echo "Usage: $0 helm-logs <release-name>"
+            echo "Usage: $0 helm-logs <release-name> [--namespace namespace]"
             exit 1
         fi
+
+        # Extract namespace for kubectl commands
+        NAMESPACE="default"
+        for i in "${!EXTRA_ARGS[@]}"; do
+            if [[ "${EXTRA_ARGS[$i]}" == "--namespace" || "${EXTRA_ARGS[$i]}" == "-n" ]]; then
+                NAMESPACE="${EXTRA_ARGS[$((i+1))]}"
+                break
+            fi
+        done
 
         echo -e "${BLUE}=== Streaming logs for release: $RELEASE_NAME ===${NC}"
         echo -e "${YELLOW}Press Ctrl+C to stop${NC}\n"
 
         # Try different label selectors to find pods
-        POD=$(kubectl get pods -l "app.kubernetes.io/instance=$RELEASE_NAME" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+        POD=$(kubectl get pods -n "$NAMESPACE" -l "app.kubernetes.io/instance=$RELEASE_NAME" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
 
         if [[ -z "$POD" ]]; then
-            POD=$(kubectl get pods -l "app=$RELEASE_NAME-server" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+            POD=$(kubectl get pods -n "$NAMESPACE" -l "app=$RELEASE_NAME-server" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
         fi
 
         if [[ -z "$POD" ]]; then
-            echo -e "${RED}No pods found for release $RELEASE_NAME${NC}"
+            echo -e "${RED}No pods found for release $RELEASE_NAME in namespace $NAMESPACE${NC}"
             echo "Available pods:"
-            kubectl get pods
+            kubectl get pods -n "$NAMESPACE"
             exit 1
         fi
 
         echo -e "${GREEN}Following logs for pod: $POD${NC}\n"
-        kubectl logs -f "$POD"
+        kubectl logs -n "$NAMESPACE" -f "$POD"
         ;;
 
     helm-restart)
         RELEASE_NAME="${2:-}"
+        # Capture extra arguments (--namespace, etc.) starting from arg 3
+        shift 2 2>/dev/null || shift $#
+        # Filter out empty strings from arguments
+        EXTRA_ARGS=()
+        for arg in "$@"; do
+            [[ -n "$arg" ]] && EXTRA_ARGS+=("$arg")
+        done
 
         if [[ -z "$RELEASE_NAME" ]]; then
             echo -e "${RED}Error: Release name required${NC}"
-            echo "Usage: $0 helm-restart <release-name>"
+            echo "Usage: $0 helm-restart <release-name> [--namespace namespace]"
             exit 1
         fi
+
+        # Extract namespace for kubectl commands
+        NAMESPACE="default"
+        for i in "${!EXTRA_ARGS[@]}"; do
+            if [[ "${EXTRA_ARGS[$i]}" == "--namespace" || "${EXTRA_ARGS[$i]}" == "-n" ]]; then
+                NAMESPACE="${EXTRA_ARGS[$((i+1))]}"
+                break
+            fi
+        done
 
         echo -e "${BLUE}=== Restarting pods for release: $RELEASE_NAME ===${NC}"
         echo -e "${YELLOW}This will pull the latest image and restart the pod${NC}\n"
 
         # Find deployments for this release
-        DEPLOYMENTS=$(kubectl get deployments -l "app.kubernetes.io/instance=$RELEASE_NAME" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
+        DEPLOYMENTS=$(kubectl get deployments -n "$NAMESPACE" -l "app.kubernetes.io/instance=$RELEASE_NAME" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
 
         if [[ -z "$DEPLOYMENTS" ]]; then
-            echo -e "${RED}No deployments found for release $RELEASE_NAME${NC}"
+            echo -e "${RED}No deployments found for release $RELEASE_NAME in namespace $NAMESPACE${NC}"
             exit 1
         fi
 
         for DEPLOYMENT in $DEPLOYMENTS; do
             echo -e "${GREEN}Restarting deployment: $DEPLOYMENT${NC}"
-            kubectl rollout restart deployment "$DEPLOYMENT"
+            kubectl rollout restart deployment "$DEPLOYMENT" -n "$NAMESPACE"
         done
 
         echo -e "\n${YELLOW}Waiting for rollout to complete...${NC}"
         for DEPLOYMENT in $DEPLOYMENTS; do
-            kubectl rollout status deployment "$DEPLOYMENT" --timeout=120s
+            kubectl rollout status deployment "$DEPLOYMENT" -n "$NAMESPACE" --timeout=120s
         done
 
         echo -e "\n${GREEN}Restart complete!${NC}"
         echo -e "\n${BLUE}=== Pod Status ===${NC}"
-        kubectl get pods -l "app.kubernetes.io/instance=$RELEASE_NAME" -o wide
+        kubectl get pods -n "$NAMESPACE" -l "app.kubernetes.io/instance=$RELEASE_NAME" -o wide
         ;;
 
     helm-uninstall)
@@ -357,16 +438,23 @@ case "$COMMAND" in
         fi
 
         RELEASE_NAME="${2:-}"
+        # Capture extra arguments (--namespace, etc.) starting from arg 3
+        shift 2 2>/dev/null || shift $#
+        # Filter out empty strings from arguments
+        EXTRA_ARGS=()
+        for arg in "$@"; do
+            [[ -n "$arg" ]] && EXTRA_ARGS+=("$arg")
+        done
 
         if [[ -z "$RELEASE_NAME" ]]; then
             echo -e "${RED}Error: Release name required${NC}"
-            echo "Usage: $0 helm-uninstall <release-name>"
+            echo "Usage: $0 helm-uninstall <release-name> [--namespace namespace]"
             exit 1
         fi
 
         echo -e "${BLUE}=== Uninstalling Helm release: $RELEASE_NAME ===${NC}\n"
 
-        helm uninstall "$RELEASE_NAME"
+        helm uninstall "$RELEASE_NAME" "${EXTRA_ARGS[@]}"
 
         echo -e "\n${GREEN}Release $RELEASE_NAME uninstalled successfully!${NC}"
         ;;

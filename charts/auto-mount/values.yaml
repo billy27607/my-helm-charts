@@ -1,0 +1,71 @@
+# Auto-mount service configuration
+image:
+  repository: alpine
+  tag: "3.19"
+  pullPolicy: IfNotPresent
+
+# Host network for device access
+hostNetwork: true
+
+# Privileged mode required for mount operations
+securityContext:
+  privileged: true
+
+# SMB/Samba configuration
+samba:
+  workgroup: HOME
+  # These credentials are for SMB access
+  username: media
+  password: smucanov!
+
+# Mount points on the host
+hotswapPath: /mnt/hotswap
+opticalPath: /mnt/optical-mount
+
+# CD ripping enabled (set to false to disable if drive is faulty)
+cdRippingEnabled: false
+
+# CD ripping speed (1-52x, lower is more reliable for marginal discs)
+# 8x is a good starting point - will auto-retry at lower speeds if read errors are detected
+# Will auto-step down: 8x → 4x → 2x → 1x on errors
+cdRipSpeed: 8
+
+# Hot-swap device by SATA port (use /dev/disk/by-path/pci-*-ata-* for port-based identification)
+# Find your ports with: ls -la /dev/disk/by-path/ | grep ata
+# ata-2 is typically the hotswap bay, adjust based on your hardware
+hotswapDevice: /dev/disk/by-path/pci-0000:00:1f.2-ata-2
+
+# Web UI configuration
+webui:
+  port: 8888
+
+# Node selector - label your node with automount=true
+nodeSelector:
+  automount: "true"
+
+# Resource limits
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Service configuration
+service:
+  type: ClusterIP
+  # Web UI port
+  webPort: 8888
+  # SMB ports
+  smbPort: 445
+  smbNetbiosPort: 139
+
+# Ingress for web UI
+ingress:
+  enabled: true
+  className: traefik
+  host: bhost.baezw.com
+  path: /automount
+  tls:
+    enabled: true

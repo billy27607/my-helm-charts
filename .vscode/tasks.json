@@ -4,19 +4,24 @@
     {
       "id": "chartName",
       "type": "pickString",
-      "description": "Select a chart",
-      "options": ["homebridge", "iperf3", "rtl-sdr", "hdhomerun-app-proxy", "hdhomerun-tuner-proxy", "prometheus", "xcarve", "scrypted", "firefox-remote", "headlamp"]
+      "description": "Select a chart to deploy",
+      "options": ["homebridge", "iperf3", "rtl-sdr", "hdhomerun-app-proxy", "auto-mount", "hdhomerun-tuner-proxy", "prometheus", "xcarve", "scrypted", "firefox-remote"]
     },
     {
       "id": "releaseName",
       "type": "promptString",
-      "description": "Helm release name",
-      "default": "iperf3"
+      "description": "Enter Helm release name"
+    },
+    {
+      "id": "namespace",
+      "type": "promptString",
+      "description": "Kubernetes namespace",
+      "default": "ourplan"
     },
     {
       "id": "helmExtraArgs",
       "type": "promptString",
-      "description": "Extra Helm args (e.g., --set key=value)",
+      "description": "Extra Helm args (optional, e.g., --set key=value)",
       "default": ""
     }
   ],
@@ -92,7 +97,14 @@
     {
       "label": "helm: Install",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-install ${input:chartName} ${input:releaseName} ${input:helmExtraArgs}",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh",
+      "args": [
+        "helm-install",
+        "${input:chartName}",
+        "${input:releaseName}",
+        "--namespace=${input:namespace}",
+        "${input:helmExtraArgs}"
+      ],
       "presentation": {
         "reveal": "always",
         "panel": "shared",
@@ -103,7 +115,7 @@
     {
       "label": "helm: Upgrade",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-upgrade ${input:chartName} ${input:releaseName} ${input:helmExtraArgs}",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-upgrade '${input:chartName}' '${input:releaseName}' '--namespace=${input:namespace}' '${input:helmExtraArgs}'",
       "presentation": {
         "reveal": "always",
         "panel": "shared",
@@ -114,7 +126,11 @@
     {
       "label": "helm: Status",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-status ${input:releaseName}",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh",
+      "args": [
+        "helm-status",
+        "${input:releaseName}"
+      ],
       "presentation": {
         "reveal": "always",
         "panel": "shared",
@@ -125,7 +141,11 @@
     {
       "label": "helm: Logs",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-logs ${input:releaseName}",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh",
+      "args": [
+        "helm-logs",
+        "${input:releaseName}"
+      ],
       "presentation": {
         "reveal": "always",
         "panel": "dedicated",
@@ -137,7 +157,11 @@
     {
       "label": "helm: Restart",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-restart ${input:releaseName}",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh",
+      "args": [
+        "helm-restart",
+        "${input:releaseName}"
+      ],
       "presentation": {
         "reveal": "always",
         "panel": "shared",
@@ -148,7 +172,11 @@
     {
       "label": "helm: Uninstall",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-uninstall ${input:releaseName}",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh",
+      "args": [
+        "helm-uninstall",
+        "${input:releaseName}"
+      ],
       "presentation": {
         "reveal": "always",
         "panel": "shared",

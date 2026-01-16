@@ -1,0 +1,955 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "auto-mount.fullname" . }}-scripts
+  labels:
+    {{- include "auto-mount.labels" . | nindent 4 }}
+data:
+  entrypoint.sh: |
+    #!/bin/sh
+    set -e
+    
+    # Install required packages (removed avahi, using wsdd instead for SMB discovery)
+    apk add --no-cache samba python3 py3-pip bash util-linux e2fsprogs procps exfat-utils udftools cdrkit cdparanoia flac curl jq wget libdiscid cd-discid
+    
+    # Install wsdd for WS-Discovery (better SMB discovery on modern Windows/macOS)
+    wget -O /usr/local/bin/wsdd https://raw.githubusercontent.com/christgau/wsdd/master/src/wsdd.py
+    chmod +x /usr/local/bin/wsdd
+    
+    # Load CD-ROM filesystem kernel modules
+    modprobe isofs 2>/dev/null || true
+    modprobe udf 2>/dev/null || true
+    
+    pip3 install --break-system-packages flask
+    
+    # Create mount points
+    mkdir -p {{ .Values.hotswapPath }} {{ .Values.opticalPath }}
+    
+    # Configure Samba
+    cat > /etc/samba/smb.conf << 'SMBCONF'
+    [global]
+       workgroup = {{ .Values.samba.workgroup }}
+       netbios name = AUTOMOUNT
+       netbios aliases = 
+       server string = Auto-Mount Server
+       security = user
+       map to guest = Never
+       log level = 2
+       min protocol = SMB2
+       server min protocol = SMB2
+       # Network discovery
+       local master = yes
+       preferred master = yes
+       wins support = yes
+       # Disable hostname in NetBIOS
+       dns proxy = no
+       # macOS compatibility
+       vfs objects = fruit streams_xattr
+       fruit:metadata = stream
+       fruit:model = MacSamba
+       fruit:posix_rename = yes
+       fruit:veto_appledouble = no
+       fruit:wipe_intentionally_left_blank_rfork = yes
+       fruit:delete_empty_adfiles = yes
+       fruit:aapl = yes
+    
+    [hotswap]
+       path = {{ .Values.hotswapPath }}
+       browseable = yes
+       writable = yes
+       guest ok = no
+       valid users = {{ .Values.samba.username }}
+       read only = no
+       force user = root
+       create mask = 0664
+       directory mask = 0775
+       vfs objects = fruit streams_xattr
+       available = no
+    
+    [optical]
+       path = {{ .Values.opticalPath }}
+       browseable = yes
+       writable = yes
+       guest ok = no
+       valid users = {{ .Values.samba.username }}
+       read only = no
+       force user = root
+       create mask = 0664
+       directory mask = 0775
+       vfs objects = fruit streams_xattr
+       available = no
+    
+    [cd-rips]
+       path = /raid5/cd-rips
+       browseable = yes
+       writable = yes
+       guest ok = no
+       valid users = {{ .Values.samba.username }}
+       read only = no
+       force user = root
+       create mask = 0664
+       directory mask = 0775
+    SMBCONF
+    
+    # Function to enable/disable Samba shares
+    update_share() {
+      local share=$1
+      local enable=$2
+      if [ "$enable" = "yes" ]; then
+        sed -i "/\[$share\]/,/^\[/ s/available = no/available = yes/" /etc/samba/smb.conf
+      else
+        sed -i "/\[$share\]/,/^\[/ s/available = yes/available = no/" /etc/samba/smb.conf
+      fi
+      smbcontrol all reload-config 2>/dev/null || killall -HUP smbd 2>/dev/null
+    }
+    
+    # Create system user for Samba
+    adduser -D -H -s /sbin/nologin {{ .Values.samba.username }} || true
+    
+    # Create Samba user (Alpine requires -a flag for add)
+    (echo "{{ .Values.samba.password }}"; echo "{{ .Values.samba.password }}") | \
+      smbpasswd -a -s {{ .Values.samba.username }}
+    
+    # Enable the user
+    smbpasswd -e {{ .Values.samba.username }}
+    
+    # Start wsdd for WS-Discovery (better network discovery)
+    /usr/local/bin/wsdd -d WORKGROUP -n AUTOMOUNT &
+    
+    # Start Samba
+    smbd -D
+    nmbd -D
+    
+    # Unmount anything at /hotswap that isn't from the hotswap device
+    # Get actual device from SATA port link
+    HOTSWAP_PORT="{{ .Values.hotswapDevice }}.0"
+    if [ -L "$HOTSWAP_PORT" ]; then
+      HOTSWAP_DEV=$(readlink -f "$HOTSWAP_PORT" | sed 's|.*/||')
+    else
+      HOTSWAP_DEV=""
+    fi
+    
+    # Check if something is mounted directly on /mnt/hotswap (not a subdirectory)
+    if mount | grep -q "^/dev/.* on {{ .Values.hotswapPath }} "; then
+      MOUNTED_DEV=$(mount | grep " on {{ .Values.hotswapPath }} " | awk '{print $1}' | sed 's|/dev/||' | sed 's|[0-9]*$||')
+      if [ "$MOUNTED_DEV" != "$HOTSWAP_DEV" ]; then
+        echo "Unmounting wrong device from {{ .Values.hotswapPath }}"
+        umount {{ .Values.hotswapPath }} 2>/dev/null || sleep 1
+      fi
+    fi
+    
+    # Check subdirectories
+    for mount_point in {{ .Values.hotswapPath }}/partition*; do
+      if [ -d "$mount_point" ] && mount | grep -q " on $mount_point"; then
+        if [ -n "$HOTSWAP_DEV" ]; then
+          if ! mount | grep -q "^/dev/${HOTSWAP_DEV}[0-9]* on $mount_point"; then
+            echo "Unmounting wrong device from $mount_point"
+            umount "$mount_point" 2>/dev/null || sleep 1
+          fi
+        else
+          # No device on hotswap port - unmount everything
+          echo "Unmounting $mount_point (no device on hotswap port)"
+          umount "$mount_point" 2>/dev/null || sleep 1
+        fi
+      fi
+    done
+    
+    # Unmount anything at /optical-mount that isn't /dev/sr0
+    if mount | grep -q " on {{ .Values.opticalPath }} "; then
+      MOUNTED_DEV=$(mount | grep " on {{ .Values.opticalPath }} " | awk '{print $1}')
+      if [ "$MOUNTED_DEV" != "/dev/sr0" ]; then
+        echo "Unmounting wrong device from {{ .Values.opticalPath }}: $MOUNTED_DEV"
+        umount {{ .Values.opticalPath }} || sleep 1
+      fi
+    fi
+    
+    # Create CD rips directory
+    mkdir -p /raid5/cd-rips
+    
+    # Monitor and auto-mount/unmount based on device presence and SMB connections
+    echo "Auto-mount service started. Monitoring devices and connections..."
+    
+    # Track if connections have been made and ejected state
+    HOTSWAP_HAD_CONNECTION=false
+    HOTSWAP_EJECTED=false
+    OPTICAL_HAD_CONNECTION=false
+    
+    # Initialize rip flag (use file flag for subshell compatibility)
+    RIP_FLAG="/tmp/cd_being_ripped"
+    rm -f "$RIP_FLAG"
+    
+    HOTSWAP_IDLE_CYCLES=0
+    OPTICAL_IDLE_CYCLES=0
+    
+    while true; do
+      # Check for hot-swap drive partitions
+      HOTSWAP_MOUNTED=false
+      # Check if any device is connected to the hotswap SATA port
+      # Use the .0 variant which is more reliable for port detection
+      HOTSWAP_PORT="{{ .Values.hotswapDevice }}.0"
+      if [ -L "$HOTSWAP_PORT" ]; then
+        # Only mount if not ejected - wait for physical removal first
+        if [ "$HOTSWAP_EJECTED" = "false" ]; then
+          # Clean up any empty partition directories from previous drives
+          for old_dir in {{ .Values.hotswapPath }}/partition*; do
+            if [ -d "$old_dir" ] && ! mount | grep -q " on $old_dir"; then
+              rmdir "$old_dir" 2>/dev/null
+            fi
+          done
+          
+          # Find all partitions on the device
+          for partition in ${HOTSWAP_PORT}-part*; do
+            if [ -b "$partition" ]; then
+              # Extract partition number (e.g., ata-2.0-part1 -> 1)
+              PART_NUM=$(echo "$partition" | grep -o '[0-9]*$')
+              MOUNT_POINT="{{ .Values.hotswapPath }}/partition${PART_NUM}"
+              
+              # Create mount point if it doesn't exist
+              mkdir -p "$MOUNT_POINT" 2>/dev/null
+              
+              # Mount if not already mounted
+              if ! mount | grep -q " on $MOUNT_POINT"; then
+                if mount "$partition" "$MOUNT_POINT" 2>/dev/null; then
+                  echo "Mounted $partition to $MOUNT_POINT"
+                  HOTSWAP_MOUNTED=true
+                fi
+              else
+                HOTSWAP_MOUNTED=true
+              fi
+            fi
+          done
+          
+          # Enable share if any partition is mounted
+          if [ "$HOTSWAP_MOUNTED" = "true" ]; then
+            # Check if share is already available
+            if ! grep -A 5 "^\[hotswap\]" /etc/samba/smb.conf | grep -q "available = yes"; then
+              echo "Enabling hotswap share (drive mounted)"
+              update_share "hotswap" "yes"
+            fi
+          fi
+        fi
+      else
+        # Device physically removed - reset ejected state and unmount
+        if [ "$HOTSWAP_EJECTED" = "true" ]; then
+          echo "Hot-swap drive on port {{ .Values.hotswapDevice }} physically removed - ready for new drive"
+          HOTSWAP_EJECTED=false
+        fi
+        
+        if mount | grep -q " on {{ .Values.hotswapPath }}/partition[0-9]"; then
+          echo "Hot-swap drive removed - unmounting all partitions"
+          for mount_point in {{ .Values.hotswapPath }}/partition*; do
+            if mount | grep -q " on $mount_point"; then
+              umount "$mount_point" 2>/dev/null && echo "Unmounted $mount_point"
+              rmdir "$mount_point" 2>/dev/null
+            fi
+          done
+          # Clean up any remaining empty partition directories
+          for mount_point in {{ .Values.hotswapPath }}/partition*; do
+            if [ -d "$mount_point" ]; then
+              rmdir "$mount_point" 2>/dev/null
+            fi
+          done
+          echo "Disabling hotswap share (drive removed)"
+          update_share "hotswap" "no"
+        fi
+        
+        HOTSWAP_HAD_CONNECTION=false
+        HOTSWAP_IDLE_CYCLES=0
+      fi
+      
+      # Check for optical disc (use cdparanoia to detect audio CDs, dd for data discs)
+      {{- if .Values.cdRippingEnabled }}
+      RIP_STATE="/tmp/cd_rip_state"
+      # Skip if already ripping OR if state shows rip phase completed (encoding may still be running)
+      if [ -f "$RIP_FLAG" ]; then
+        echo "DEBUG: Rip in progress (flag exists), skipping disc check"
+      elif [ -f "$RIP_STATE" ]; then
+        # State file exists - check what state we're in
+        if grep -q "RIP_PHASE_COMPLETED=YES" "$RIP_STATE" 2>/dev/null; then
+          echo "DEBUG: Rip completed, waiting for disc removal"
+        elif grep -q "STARTING" "$RIP_STATE" 2>/dev/null; then
+          # Check if the rip started recently (within last 10 minutes = 600 seconds)
+          START_TIME=$(grep "TIMESTAMP_START=" "$RIP_STATE" 2>/dev/null | cut -d= -f2)
+          CURRENT_TIME=$(date +%s)
+          if [ -n "$START_TIME" ]; then
+            TIME_DIFF=$((CURRENT_TIME - START_TIME))
+            if [ $TIME_DIFF -lt 600 ]; then
+              echo "DEBUG: Rip started ${TIME_DIFF}s ago, still active (no restart)"
+            else
+              echo "WARNING: Rip started ${TIME_DIFF}s ago but flag missing - possible crash"
+            fi
+          fi
+        fi
+      elif [ -b /dev/sr0 ]; then
+        echo "DEBUG: /dev/sr0 exists and not ripping, checking for disc..."
+        # Check if disc is present - try cdparanoia first for audio, then dd for data
+        # Note: cdparanoia needs time to spin up the drive, 10s timeout allows for this
+        DISC_PRESENT=false
+        if timeout 10 cdparanoia -Q -d /dev/sr0 2>&1 | grep -q "Table of contents"; then
+          DISC_PRESENT=true
+          echo "DEBUG: Audio CD detected!"
+        elif timeout 5 dd if=/dev/sr0 bs=2048 count=1 of=/dev/null 2>/dev/null; then
+          DISC_PRESENT=true
+          echo "DEBUG: Data disc detected!"
+        fi
+        
+        if [ "$DISC_PRESENT" = "true" ]; then
+          if ! mount | grep -q "on {{ .Values.opticalPath }}"; then
+            echo "Optical disc detected: /dev/sr0"
+            # Wait a moment for disc to be ready
+            sleep 2
+            # Try to mount as data disc first (try multiple filesystem types)
+            MOUNTED=false
+            for fstype in udf iso9660 auto; do
+            if mount -t $fstype -o ro /dev/sr0 {{ .Values.opticalPath }} 2>/dev/null; then
+              echo "Mounted data disc to {{ .Values.opticalPath }} (fs: $fstype)"
+              update_share "optical" "yes"
+              MOUNTED=true
+              break
+            fi
+          done
+          
+          if [ "$MOUNTED" = "false" ]; then
+            echo "Data disc mount failed - checking for audio CD"
+            # Check if it's actually an audio CD using cdparanoia
+            if cdparanoia -Q 2>&1 | grep -q "Table of contents"; then
+              echo "Audio CD confirmed - ripping to FLAC with metadata lookup"
+              
+              # Check if we should actually start a new rip
+              RIP_STATE="/tmp/cd_rip_state"
+              if [ -f "$RIP_STATE" ] && grep -q "RIP_PHASE_COMPLETED=YES" "$RIP_STATE" 2>/dev/null; then
+                echo "Rip already completed - NOT starting new rip (this shouldn't happen)"
+              else
+                # Clear old state and start fresh
+                rm -f "$RIP_STATE" 2>/dev/null
+                echo "STARTING" > "$RIP_STATE"
+                echo "TIMESTAMP_START=$(date +%s)" >> "$RIP_STATE"
+                # Set flag file AFTER clearing state
+                touch "$RIP_FLAG"
+              
+              (
+                # Ensure flags are cleaned up on exit, but preserve state for debugging
+                trap 'EXIT_CODE=$?; echo "SUBPROCESS_EXIT_CODE=$EXIT_CODE" >> "$RIP_STATE" 2>/dev/null || true; echo "EXITED" >> "$RIP_STATE" 2>/dev/null || true; rm -f "/tmp/cd_being_ripped" 2>/dev/null || true' EXIT
+                # Explicitly disable exit on error globally
+                set +e
+                
+                echo "========================================"
+                echo "Starting rip subprocess PID: $$"
+                echo "State file: $RIP_STATE"
+                echo "========================================"
+                
+                # Get disc info and lookup metadata
+                DISC_ID=$(date +%Y%m%d_%H%M%S)
+                OUTPUT_DIR="/raid5/cd-rips/AudioCD_${DISC_ID}"
+                mkdir -p "$OUTPUT_DIR"
+                
+                # Get CD disc ID for metadata lookup
+                echo "Looking up CD metadata..."
+                CDDB_ID=$(cd-discid /dev/sr0 2>/dev/null | awk '{print $1}')
+                
+                # Query MusicBrainz for metadata
+                if [ -n "$CDDB_ID" ]; then
+                  MB_URL="https://musicbrainz.org/ws/2/discid/${CDDB_ID}?fmt=json&inc=artist-credits+recordings"
+                  METADATA=$(curl -s -A "AutoMount/1.0" "$MB_URL" 2>/dev/null)
+                  
+                  if echo "$METADATA" | jq -e '.releases[0]' >/dev/null 2>&1; then
+                    ARTIST=$(echo "$METADATA" | jq -r '.releases[0]."artist-credit"[0].name' 2>/dev/null)
+                    ALBUM=$(echo "$METADATA" | jq -r '.releases[0].title' 2>/dev/null)
+                    YEAR=$(echo "$METADATA" | jq -r '.releases[0].date' 2>/dev/null | cut -d'-' -f1)
+                    echo "Found: $ARTIST - $ALBUM ($YEAR)"
+                    
+                    # Save metadata to file
+                    echo "Artist: $ARTIST" > "$OUTPUT_DIR/metadata.txt"
+                    echo "Album: $ALBUM" >> "$OUTPUT_DIR/metadata.txt"
+                    echo "Year: $YEAR" >> "$OUTPUT_DIR/metadata.txt"
+                    echo "Disc ID: $CDDB_ID" >> "$OUTPUT_DIR/metadata.txt"
+                  else
+                    echo "Metadata not found for disc ID: $CDDB_ID"
+                    ARTIST="Unknown Artist"
+                    ALBUM="Unknown Album"
+                    YEAR=""
+                  fi
+                else
+                  echo "Could not get disc ID"
+                  ARTIST="Unknown Artist"
+                  ALBUM="Unknown Album"
+                  YEAR=""
+                fi
+                
+                # Rip audio CD using cdparanoia with intelligent speed stepping
+                echo "Ripping audio CD with cdparanoia starting at {{ .Values.cdRipSpeed }}x speed..."
+                cd "$OUTPUT_DIR" || { echo "ERROR: Failed to cd to $OUTPUT_DIR"; exit 1; }
+                
+                # Get track list (with error handling)
+                TRACK_COUNT=$(cdparanoia -Q -d /dev/sr0 2>&1 | grep -c "^\s*[0-9]\+\." || echo "0")
+                TRACK_COUNT=${TRACK_COUNT:-0}
+                if [ "$TRACK_COUNT" -eq 0 ]; then
+                  echo "ERROR: Could not detect tracks on CD"
+                  exit 1
+                fi
+                echo "Found $TRACK_COUNT tracks to rip"
+                echo "TRACK_COUNT=$TRACK_COUNT" >> "$RIP_STATE"
+                
+                # Rip each track individually with automatic speed stepping on errors
+                TRACK_NUM=1
+                while [ $TRACK_NUM -le $TRACK_COUNT ]; do
+                  echo "TRACK_${TRACK_NUM}=STARTING" >> "$RIP_STATE"
+                  CURRENT_SPEED={{ .Values.cdRipSpeed }}
+                  SUCCESS=false
+                  RETRY_COUNT_AT_1X=0  # Prevent infinite retry at 1x speed
+                  
+                  while [ $CURRENT_SPEED -ge 1 ] && [ "$SUCCESS" = "false" ]; do
+                    echo "========================================"
+                    echo "[Track $TRACK_NUM/$TRACK_COUNT] Ripping at ${CURRENT_SPEED}x speed..."
+                    echo "========================================"
+                    
+                    # Calculate timeout based on speed (allow 10 minutes at 1x, scale down for higher speeds)
+                    # Formula: 600 seconds / speed = timeout (min 90s for fast speeds)
+                    TIMEOUT_SECS=$((600 / CURRENT_SPEED))
+                    if [ $TIMEOUT_SECS -lt 90 ]; then
+                      TIMEOUT_SECS=90
+                    fi
+                    echo "Using ${TIMEOUT_SECS}s timeout for ${CURRENT_SPEED}x speed"
+                    
+                    # Rip track with real-time error monitoring
+                    rm -f cdda.wav 2>/dev/null || true
+                    RIP_LOG="/tmp/cdpara_track${TRACK_NUM}.log"
+                    rm -f "$RIP_LOG" || true
+                    touch "$RIP_LOG"
+                    
+                    # Start cdparanoia with hard timeout wrapper to prevent hangs
+                    # Using timeout ensures kernel-level kill if process gets stuck in D state
+                    timeout -k 10 $TIMEOUT_SECS cdparanoia -d /dev/sr0 -S $CURRENT_SPEED $TRACK_NUM > "$RIP_LOG" 2>&1 &
+                    CDPARA_PID=$!
+                    echo "[Track $TRACK_NUM] Started cdparanoia PID: $CDPARA_PID (timeout: ${TIMEOUT_SECS}s)"
+                    
+                    # Monitor for errors in real-time
+                    SHOULD_RETRY=false
+                    ELAPSED=0
+                    LAST_ERROR_COUNT=0
+                    LAST_FILE_SIZE=0
+                    STALL_COUNT=0
+                    echo "Starting monitoring loop for track $TRACK_NUM (timeout: ${TIMEOUT_SECS}s)"
+                    while ps -p $CDPARA_PID > /dev/null 2>&1 || [ $? -eq 1 ]; do
+                      # Exit monitoring if process is gone
+                      if ! ps -p $CDPARA_PID > /dev/null 2>&1; then
+                        echo "Process $CDPARA_PID completed"
+                        break
+                      fi
+                      
+                      sleep 2
+                      ELAPSED=$((ELAPSED + 2))
+                      
+                      # Check for multiple error patterns that cdparanoia outputs (handle grep failures gracefully)
+                      CURRENT_ERROR_COUNT=$(grep -iE "error|skip|retry|abort" "$RIP_LOG" 2>/dev/null | wc -l || echo "0")
+                      CURRENT_ERROR_COUNT=${CURRENT_ERROR_COUNT:-0}
+                      
+                      # Check if output file is growing (progress indicator) - handle stat failures
+                      CURRENT_FILE_SIZE=$(stat -c%s cdda.wav 2>/dev/null || echo "0")
+                      CURRENT_FILE_SIZE=${CURRENT_FILE_SIZE:-0}
+                      
+                      if [ "$CURRENT_FILE_SIZE" = "$LAST_FILE_SIZE" ] && [ $ELAPSED -gt 10 ]; then
+                        STALL_COUNT=$((STALL_COUNT + 1))
+                        if [ $STALL_COUNT -gt 5 ]; then
+                          echo "Rip stalled - no progress for $((STALL_COUNT * 2))s (file size: $CURRENT_FILE_SIZE)"
+                          kill -TERM $CDPARA_PID 2>/dev/null || true
+                          sleep 1
+                          kill -KILL $CDPARA_PID 2>/dev/null || true
+                          SHOULD_RETRY=true
+                          break
+                        fi
+                      else
+                        STALL_COUNT=0
+                      fi
+                      LAST_FILE_SIZE=$CURRENT_FILE_SIZE
+                      
+                      # If we're seeing rapid errors (8+ errors), step down speed immediately
+                      ERROR_DELTA=$((CURRENT_ERROR_COUNT - LAST_ERROR_COUNT))
+                      if [ $CURRENT_ERROR_COUNT -gt 8 ] && [ $ERROR_DELTA -gt 3 ]; then
+                        echo "Rapid read errors detected ($CURRENT_ERROR_COUNT total, +$ERROR_DELTA in 2s) - stepping down speed"
+                        kill -TERM $CDPARA_PID 2>/dev/null || true
+                        sleep 1
+                        kill -KILL $CDPARA_PID 2>/dev/null || true
+                        SHOULD_RETRY=true
+                        break
+                      fi
+                      LAST_ERROR_COUNT=$CURRENT_ERROR_COUNT
+                      
+                      # Manual timeout check (shouldn't be needed with timeout command, but safety net)
+                      # Add 30s buffer beyond timeout command's limit
+                      if [ $ELAPSED -ge $((TIMEOUT_SECS + 30)) ]; then
+                        echo "Emergency timeout after ${ELAPSED}s (exceeded timeout + buffer)"
+                        kill -TERM $CDPARA_PID 2>/dev/null || true
+                        sleep 1
+                        kill -KILL $CDPARA_PID 2>/dev/null || true
+                        SHOULD_RETRY=true
+                        break
+                      fi
+                    done
+                    echo "Monitoring loop completed for track $TRACK_NUM (elapsed: ${ELAPSED}s, errors: $CURRENT_ERROR_COUNT)"
+                    
+                    # Wait for process to complete if still running (don't fail if process already exited)
+                    wait $CDPARA_PID 2>/dev/null || RIP_EXIT=$?
+                    RIP_EXIT=${RIP_EXIT:-0}
+                    echo "cdparanoia exit code: $RIP_EXIT"
+                    
+                    # Read the full output for later analysis
+                    RIP_OUTPUT=$(cat "$RIP_LOG" 2>/dev/null || echo "")
+                    
+                    # Check for timeout or read errors
+                    if [ "$SHOULD_RETRY" = "true" ]; then
+                      echo "[Track $TRACK_NUM] Detected errors or timeout at ${CURRENT_SPEED}x (exit: $RIP_EXIT)"
+                      rm -f cdda.wav 2>/dev/null || true
+                      
+                      # If already at 1x, increment retry counter
+                      if [ $CURRENT_SPEED -eq 1 ]; then
+                        RETRY_COUNT_AT_1X=$((RETRY_COUNT_AT_1X + 1))
+                        if [ $RETRY_COUNT_AT_1X -ge 3 ]; then
+                          echo "[Track $TRACK_NUM] WARNING: Failed 3 times at 1x speed, skipping"
+                          echo "TRACK_${TRACK_NUM}=FAILED_MAX_RETRIES" >> "$RIP_STATE"
+                          SUCCESS=true
+                          break
+                        else
+                          echo "[Track $TRACK_NUM] Retrying at 1x speed (attempt $((RETRY_COUNT_AT_1X + 1))/3)..."
+                        fi
+                      else
+                        # Try half speed
+                        CURRENT_SPEED=$((CURRENT_SPEED / 2))
+                        if [ $CURRENT_SPEED -lt 1 ]; then
+                          CURRENT_SPEED=1
+                        fi
+                        echo "[Track $TRACK_NUM] Retrying at ${CURRENT_SPEED}x speed..."
+                      fi
+                    elif echo "$RIP_OUTPUT" | grep -q "scsi_read error"; then
+                      echo "[Track $TRACK_NUM] Read errors detected at ${CURRENT_SPEED}x"
+                      rm -f cdda.wav 2>/dev/null || true
+                      
+                      # If already at 1x, increment retry counter
+                      if [ $CURRENT_SPEED -eq 1 ]; then
+                        RETRY_COUNT_AT_1X=$((RETRY_COUNT_AT_1X + 1))
+                        if [ $RETRY_COUNT_AT_1X -ge 3 ]; then
+                          echo "[Track $TRACK_NUM] WARNING: Failed 3 times at 1x speed, skipping"
+                          echo "TRACK_${TRACK_NUM}=FAILED_MAX_RETRIES" >> "$RIP_STATE"
+                          SUCCESS=true
+                          break
+                        else
+                          echo "[Track $TRACK_NUM] Retrying at 1x speed (attempt $((RETRY_COUNT_AT_1X + 1))/3)..."
+                        fi
+                      else
+                        # Try half speed
+                        CURRENT_SPEED=$((CURRENT_SPEED / 2))
+                        if [ $CURRENT_SPEED -lt 1 ]; then
+                          CURRENT_SPEED=1
+                        fi
+                        echo "[Track $TRACK_NUM] Retrying at ${CURRENT_SPEED}x speed..."
+                      fi
+                    else
+                      # Success - rename to proper track number
+                      if [ -f cdda.wav ]; then
+                        FILE_SIZE=$(stat -c%s cdda.wav 2>/dev/null || echo "unknown")
+                        mv cdda.wav "track$(printf '%02d' $TRACK_NUM).cdda.wav" || {
+                          echo "[Track $TRACK_NUM] WARNING: Failed to rename output file"
+                          SUCCESS=true  # Mark as handled to continue
+                          break
+                        }
+                        echo "[Track $TRACK_NUM] ✓ Successfully ripped (${FILE_SIZE} bytes)"
+                        echo "TRACK_${TRACK_NUM}=SUCCESS" >> "$RIP_STATE"
+                        SUCCESS=true
+                      else
+                        echo "[Track $TRACK_NUM] WARNING: No output file after rip, skipping"
+                        echo "TRACK_${TRACK_NUM}=NO_OUTPUT" >> "$RIP_STATE"
+                        # Mark as 'handled' to exit retry loop and continue to next track
+                        SUCCESS=true
+                        break
+                      fi
+                    fi
+                  done
+                  
+                  # Move to next track regardless of success/failure
+                  echo "[Track $TRACK_NUM] Completed - moving to track $((TRACK_NUM + 1))"
+                  TRACK_NUM=$((TRACK_NUM + 1))
+                done
+                
+                # Mark rip phase as complete IMMEDIATELY (before encoding to prevent restarts)
+                echo "RIP_PHASE_COMPLETED=YES" >> "$RIP_STATE" || true
+                echo "TIMESTAMP_RIP_COMPLETE=$(date +%s)" >> "$RIP_STATE" || true
+                
+                echo "========================================"
+                echo "All tracks ripped, starting FLAC encoding phase..."
+                echo "========================================"
+                echo "ENCODING_PHASE=STARTED" >> "$RIP_STATE" || true
+                
+                # Get track names from MusicBrainz and encode
+                TRACK_NUM=1
+                for wav in track*.cdda.wav; do
+                    if [ -f "$wav" ]; then
+                      echo "[Encode] Processing $wav..."
+                      # Get track title from metadata if available
+                      if [ -n "$METADATA" ]; then
+                        TRACK_TITLE=$(echo "$METADATA" | jq -r ".releases[0].media[0].tracks[$((TRACK_NUM-1))].recording.title" 2>/dev/null)
+                        if [ "$TRACK_TITLE" = "null" ] || [ -z "$TRACK_TITLE" ]; then
+                          TRACK_TITLE="Track $TRACK_NUM"
+                        fi
+                      else
+                        TRACK_TITLE="Track $TRACK_NUM"
+                      fi
+                      
+                      # Convert to FLAC and tag
+                      FLAC_FILE="${wav%.wav}.flac"
+                      if flac --best -o "$FLAC_FILE" "$wav" 2>&1 || [ -f "$FLAC_FILE" ]; then
+                        # Add metadata tags (continue even if tagging fails)
+                        metaflac --remove-all-tags "$FLAC_FILE" 2>/dev/null || true
+                        [ -n "$ARTIST" ] && metaflac --set-tag="ARTIST=$ARTIST" "$FLAC_FILE" 2>/dev/null || true
+                        [ -n "$ALBUM" ] && metaflac --set-tag="ALBUM=$ALBUM" "$FLAC_FILE" 2>/dev/null || true
+                        [ -n "$YEAR" ] && metaflac --set-tag="DATE=$YEAR" "$FLAC_FILE" 2>/dev/null || true
+                        metaflac --set-tag="TITLE=$TRACK_TITLE" "$FLAC_FILE" 2>/dev/null || true
+                        metaflac --set-tag="TRACKNUMBER=$TRACK_NUM" "$FLAC_FILE" 2>/dev/null || true
+                        
+                        # Rename file with track info
+                        SAFE_TITLE=$(echo "$TRACK_TITLE" | tr -cd '[:alnum:] ._-' | sed 's/  */ /g' | cut -c1-50)
+                        NEW_NAME=$(printf "%02d - %s.flac" $TRACK_NUM "$SAFE_TITLE")
+                        mv "$FLAC_FILE" "$NEW_NAME" 2>/dev/null || mv "$FLAC_FILE" "$(printf '%02d.flac' $TRACK_NUM)"
+                        
+                        rm -f "$wav"
+                        echo "Encoded: $NEW_NAME"
+                      else
+                        echo "Failed to encode $wav"
+                      fi
+                      TRACK_NUM=$((TRACK_NUM + 1))
+                    fi
+                  done
+                  
+                  echo "========================================"
+                  echo "Audio CD rip complete!"
+                  echo "Output: $OUTPUT_DIR/*.flac"
+                  echo "Metadata: $OUTPUT_DIR/metadata.txt"
+                  echo "========================================"
+                
+                # Mark as completed successfully FIRST (before any cleanup that could fail)
+                echo "ENCODING_PHASE=COMPLETED" >> "$RIP_STATE" || true
+                echo "FINAL_STATUS=SUCCESS" >> "$RIP_STATE" || true
+                echo "RIP_COMPLETED_NORMALLY=YES" >> "$RIP_STATE" || true
+                echo "TIMESTAMP_COMPLETE=$(date +%s)" >> "$RIP_STATE" || true
+                sync  # Ensure state file is written to disk
+                
+                # Now safe to cleanup
+                eject /dev/sr0 2>/dev/null || echo "Eject failed or already ejected"
+                rm -f "$RIP_FLAG" || true
+                echo "Rip process completed successfully - exiting background task"
+                exit 0
+              ) &
+              RIP_SUBPROCESS_PID=$!
+              echo "========================================"
+              echo "Started background rip process with PID $RIP_SUBPROCESS_PID"
+              echo "State tracking: $RIP_STATE"
+              echo "========================================"
+              fi  # End of should-we-start-rip check
+            else
+              echo "Not an audio CD or disc is empty - skipping"
+            fi
+          fi
+        fi
+        fi
+      else
+        # No disc - unmount if mounted and clear state
+        if mount | grep -q "on {{ .Values.opticalPath }}"; then
+          echo "No optical disc detected - unmounting and disabling share"
+          umount {{ .Values.opticalPath }} 2>/dev/null
+          update_share "optical" "no"
+          eject /dev/sr0 2>/dev/null
+          OPTICAL_HAD_CONNECTION=false
+          OPTICAL_IDLE_CYCLES=0
+        fi
+        # Clear rip state when disc is removed
+        RIP_STATE="/tmp/cd_rip_state"
+        if [ -f "$RIP_STATE" ]; then
+          echo "========================================"
+          echo "Disc removed - clearing rip state"
+          cat "$RIP_STATE" 2>/dev/null || echo "(state file unreadable)"
+          echo "========================================"
+          rm -f "$RIP_STATE"
+        fi
+      fi
+      
+      # Auto-unmount hotswap immediately when last connection closes (eject behavior)
+      # Monitor for active SMB connections
+      if mount | grep -q " on {{ .Values.hotswapPath }}/partition[0-9]"; then
+        if smbstatus -S 2>/dev/null | grep -q hotswap; then
+          # Active connection detected
+          HOTSWAP_HAD_CONNECTION=true
+          HOTSWAP_IDLE_CYCLES=0
+        elif [ "$HOTSWAP_HAD_CONNECTION" = "true" ] && [ "$HOTSWAP_EJECTED" = "false" ]; then
+          # Had a connection before, now it's gone - unmount immediately (eject)
+          HOTSWAP_IDLE_CYCLES=$((HOTSWAP_IDLE_CYCLES + 1))
+          # Wait just 1 cycle (5 seconds) to avoid race conditions
+          if [ $HOTSWAP_IDLE_CYCLES -ge 1 ]; then
+            echo "Last SMB connection closed - ejecting hotswap drive"
+            for mount_point in {{ .Values.hotswapPath }}/partition*; do
+              if mount | grep -q " on $mount_point"; then
+                umount "$mount_point" 2>/dev/null && echo "Unmounted $mount_point (ejected)"
+                rmdir "$mount_point" 2>/dev/null
+              fi
+            done
+            # Clean up any remaining empty partition directories
+            for mount_point in {{ .Values.hotswapPath }}/partition*; do
+              if [ -d "$mount_point" ]; then
+                rmdir "$mount_point" 2>/dev/null
+              fi
+            done
+            echo "Disabling hotswap share (ejected - waiting for physical removal)"
+            update_share "hotswap" "no"
+            HOTSWAP_EJECTED=true
+            HOTSWAP_HAD_CONNECTION=false
+            HOTSWAP_IDLE_CYCLES=0
+          fi
+        fi
+        # If HOTSWAP_HAD_CONNECTION=false, do nothing - keep mounted until first connection
+      else
+        HOTSWAP_HAD_CONNECTION=false
+        HOTSWAP_IDLE_CYCLES=0
+      fi
+      
+      # Auto-unmount optical ONLY after someone has connected AND then disconnected
+      # Monitor for active SMB connections
+      if mount | grep -q "on {{ .Values.opticalPath }}"; then
+        if smbstatus -S 2>/dev/null | grep -q optical; then
+          # Active connection detected
+          OPTICAL_HAD_CONNECTION=true
+          OPTICAL_IDLE_CYCLES=0
+        elif [ "$OPTICAL_HAD_CONNECTION" = "true" ]; then
+          # Had a connection before, now it's gone - start counting idle time
+          OPTICAL_IDLE_CYCLES=$((OPTICAL_IDLE_CYCLES + 1))
+          # Wait 6 cycles (30 seconds) before unmounting
+          if [ $OPTICAL_IDLE_CYCLES -ge 6 ]; then
+            echo "No active connections to optical share for 30s (after disconnect) - unmounting and ejecting"
+            umount {{ .Values.opticalPath }} 2>/dev/null && \
+              update_share "optical" "no" && \
+              eject /dev/sr0 2>/dev/null && \
+              echo "Ejected optical disc (disconnected)"
+            OPTICAL_HAD_CONNECTION=false
+            OPTICAL_IDLE_CYCLES=0
+          fi
+        fi
+        # If OPTICAL_HAD_CONNECTION=false, do nothing - keep mounted until first connection
+      else
+        OPTICAL_HAD_CONNECTION=false
+        OPTICAL_IDLE_CYCLES=0
+      fi
+      {{- else }}
+      echo "CD ripping disabled in configuration"
+      {{- end }}
+      
+      sleep 5
+    done
+  
+  webui.py: |
+    from flask import Flask, render_template_string, jsonify, request
+    import subprocess
+    import os
+    
+    app = Flask(__name__)
+    
+    HOTSWAP = "{{ .Values.hotswapPath }}"
+    OPTICAL = "{{ .Values.opticalPath }}"
+    
+    def run_cmd(cmd):
+        try:
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+            return {"ok": True, "output": result.stdout + result.stderr}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+    
+    def is_mounted(path):
+        result = subprocess.run(f"mountpoint -q {path}", shell=True)
+        return result.returncode == 0
+    
+    def get_mount_info(path):
+        if not is_mounted(path):
+            return "Not mounted"
+        # Get all mounts for this path
+        result = subprocess.run(f"mount | grep ' {path} '", shell=True, capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout:
+            # Return all mount entries
+            return result.stdout.strip()
+        # Fallback to df
+        result = subprocess.run(f"df -h {path}", shell=True, capture_output=True, text=True)
+        return result.stdout
+    
+    @app.route("/automount")
+    @app.route("/automount/")
+    def index():
+        html = '''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Auto-Mount Manager</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    max-width: 800px;
+                    margin: 50px auto;
+                    padding: 20px;
+                    background: #f5f5f5;
+                }
+                .card {
+                    background: white;
+                    padding: 20px;
+                    margin: 20px 0;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+                h1 {
+                    color: #333;
+                }
+                h2 {
+                    color: #666;
+                    border-bottom: 2px solid #0066cc;
+                    padding-bottom: 10px;
+                }
+                button {
+                    background: #0066cc;
+                    color: white;
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 14px;
+                    margin: 5px;
+                }
+                button:hover {
+                    background: #0052a3;
+                }
+                button:disabled {
+                    background: #ccc;
+                    cursor: not-allowed;
+                }
+                .status {
+                    padding: 10px;
+                    margin: 10px 0;
+                    border-radius: 4px;
+                    font-family: monospace;
+                    font-size: 12px;
+                    white-space: pre-wrap;
+                }
+                .mounted {
+                    background: #d4edda;
+                    border: 1px solid #c3e6cb;
+                }
+                .unmounted {
+                    background: #f8d7da;
+                    border: 1px solid #f5c6cb;
+                }
+                .output {
+                    background: #e9ecef;
+                    padding: 10px;
+                    margin: 10px 0;
+                    border-radius: 4px;
+                    font-family: monospace;
+                    font-size: 12px;
+                    max-height: 200px;
+                    overflow-y: auto;
+                }
+            </style>
+        </head>
+        <body>
+            <h1>🔌 Auto-Mount Manager</h1>
+            
+            <div class="card">
+                <h2>💾 Hot-Swap Drive</h2>
+                <div id="hotswap-status" class="status">Loading...</div>
+                <button onclick="unmount('hotswap')">Unmount Hot-Swap</button>
+                <button onclick="refresh()">Refresh Status</button>
+            </div>
+            
+            <div class="card">
+                <h2>💿 Optical Drive</h2>
+                <div id="optical-status" class="status">Loading...</div>
+                <button onclick="unmount('optical')">Unmount Optical</button>
+                <button onclick="eject()">Eject Disc</button>
+            </div>
+            
+            <div class="card">
+                <h2>📝 Output</h2>
+                <div id="output" class="output">Ready</div>
+            </div>
+            
+            <script>
+                function showOutput(msg) {
+                    document.getElementById('output').innerText = msg;
+                }
+                
+                function refresh() {
+                    fetch('/automount/status')
+                        .then(r => r.json())
+                        .then(data => {
+                            const hs = document.getElementById('hotswap-status');
+                            const opt = document.getElementById('optical-status');
+                            
+                            hs.innerText = data.hotswap.info;
+                            hs.className = 'status ' + (data.hotswap.mounted ? 'mounted' : 'unmounted');
+                            
+                            opt.innerText = data.optical.info;
+                            opt.className = 'status ' + (data.optical.mounted ? 'mounted' : 'unmounted');
+                            
+                            showOutput('Status refreshed at ' + new Date().toLocaleTimeString());
+                        })
+                        .catch(err => showOutput('Error: ' + err));
+                }
+                
+                function unmount(type) {
+                    showOutput('Unmounting ' + type + '...');
+                    fetch('/automount/unmount/' + type, {method: 'POST'})
+                        .then(r => r.json())
+                        .then(data => {
+                            showOutput(data.ok ? data.output : 'Error: ' + data.error);
+                            refresh();
+                        })
+                        .catch(err => showOutput('Error: ' + err));
+                }
+                
+                function eject() {
+                    showOutput('Ejecting optical disc...');
+                    fetch('/automount/eject', {method: 'POST'})
+                        .then(r => r.json())
+                        .then(data => {
+                            showOutput(data.ok ? data.output : 'Error: ' + data.error);
+                            setTimeout(refresh, 2000);
+                        })
+                        .catch(err => showOutput('Error: ' + err));
+                }
+                
+                // Auto-refresh every 10 seconds
+                setInterval(refresh, 10000);
+                refresh();
+            </script>
+        </body>
+        </html>
+        '''
+        return render_template_string(html)
+    
+    @app.route("/automount/status")
+    def status():
+        return jsonify({
+            "hotswap": {
+                "mounted": is_mounted(HOTSWAP),
+                "info": get_mount_info(HOTSWAP)
+            },
+            "optical": {
+                "mounted": is_mounted(OPTICAL),
+                "info": get_mount_info(OPTICAL)
+            }
+        })
+    
+    @app.route("/automount/unmount/<drive>", methods=["POST"])
+    def unmount(drive):
+        path = HOTSWAP if drive == "hotswap" else OPTICAL
+        return jsonify(run_cmd(f"umount {path}"))
+    
+    @app.route("/automount/eject", methods=["POST"])
+    def eject_disc():
+        # Unmount first, then eject
+        run_cmd(f"umount {OPTICAL}")
+        return jsonify(run_cmd("eject /dev/sr0"))
+    
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port={{ .Values.webui.port }})

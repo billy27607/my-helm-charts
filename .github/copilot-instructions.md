@@ -32,43 +32,68 @@ Requires `securityContext.privileged: true` for device access.
 - **Z-Wave USB** (/dev/ttyACM0): `devices.serial` for Z-Wave JS integration
 - **Zigbee USB** (/dev/ttyACM1): Additional serial device for Zigbee coordinators
 
-### Multi-Component Charts
-The `frontst` chart bundles 4 services (Homebridge, Mosquitto, Scrypted, Z-Wave JS) for complex home automation stacks. Each component has:
-- Separate `deployment-<name>.yaml` and `service-<name>.yaml` templates
-- Conditional enablement via `.<component>.enabled` in values
-- Shared helpers in `_helpers.tpl` with component-specific label functions
+### Chart Categories
+This repository contains three types of charts:
+
+**Single-Service Charts** (most charts): scrypted, iperf3, rtl-sdr, hdhomerun-app-proxy, hdhomerun-tuner-proxy, auto-mount, firefox-remote, prometheus
+- One deployment per chart
+- Standard `_helpers.tpl` with `<chart>.name`, `<chart>.fullname`, `<chart>.labels`, `<chart>.selectorLabels`
+
+**Multi-Component Charts**: homebridge (Homebridge + Mosquitto), xcarve (CNCjs + MJPG-Streamer)
+- Multiple deployments bundled in one chart
+- Pattern structure:
+  - Separate `deployment-<component>.yaml` and `service-<component>.yaml` templates
+  - Conditional enablement via `.<component>.enabled` in values.yaml
+  - Component-specific helpers in `_helpers.tpl` (e.g., `homebridge.mosquitto.labels`, `xcarve.cncjs.labels`)
+  - Each component has nested values: `.<component>.image`, `.<component>.persistence`, `.<component>.service`
 
 ## Development Workflows
 
 ### Local Testing with k8s-helpers.sh
-**Never kubectl commands directly in tasks** - use the k8s-helpers.sh script:
+**Never use kubectl commands directly** - always use the `scripts/k8s-helpers.sh` wrapper script:
 
 ```bash
 # Helm workflows (preferred)
-k8s-helpers.sh helm-install scrypted my-release --set hostNetwork=false
-k8s-helpers.sh helm-upgrade scrypted my-release --values custom.yaml
-k8s-helpers.sh helm-status my-release
-k8s-helpers.sh helm-logs my-release     # Auto-detects pod labels
-k8s-helpers.sh helm-restart my-release  # Rollout restart
-k8s-helpers.sh helm-uninstall my-release
+scripts/k8s-helpers.sh helm-install scrypted my-release --set hostNetwork=false
+scripts/k8s-helpers.sh helm-upgrade scrypted my-release --values custom.yaml
+scripts/k8s-helpers.sh helm-status my-release
+scripts/k8s-helpers.sh helm-logs my-release     # Auto-detects pod labels
+scripts/k8s-helpers.sh helm-restart my-release  # Rollout restart
+scripts/k8s-helpers.sh helm-uninstall my-release
 
 # Direct YAML workflows (legacy)
-k8s-helpers.sh status deployment.yaml
-k8s-helpers.sh logs deployment.yaml     # Extracts app selector
-k8s-helpers.sh events deployment.yaml
-k8s-helpers.sh resources deployment.yaml
+scripts/k8s-helpers.sh status deployment.yaml
+scripts/k8s-helpers.sh logs deployment.yaml     # Extracts app selector
+scripts/k8s-helpers.sh events deployment.yaml
+scripts/k8s-helpers.sh resources deployment.yaml
 ```
 
+**Key features of k8s-helpers.sh:**
+- Auto-detects and uninstalls conflicting releases (prevents hostPort conflicts)
+- Smart pod label detection (tries `app.kubernetes.io/instance`, then `app` selector)
+- Automatic namespace extraction from YAML or args
+- Built-in wait/status checks after operations
+
 ### VS Code Tasks
-Run via Command Palette → "Run Task":
+Run via Command Palette → "Run Task" or terminal directly:
 - **helm: Install/Upgrade/Status/Logs/Restart/Uninstall** - Helm lifecycle operations
 - **k8s: Deploy/Status/Logs/Events/Teardown** - Direct kubectl operations
 
-Tasks source chart names from `${workspaceFolder}/charts/` automatically.
+Tasks automatically:
+- Source chart names from `${workspaceFolder}/charts/` directory
+- Prompt for chart name (pickString from available charts)
+- Prompt for release name and namespace (defaults to "ourplan")
+- Support custom Helm args via prompt
+
+**Task inputs defined:**
+- `chartName`: Pick from auto-detected charts
+- `releaseName`: Custom release name
+- `namespace`: Target namespace (default: "ourplan")
+- `helmExtraArgs`: Additional flags (e.g., `--set key=value`)
 
 ## Code Conventions
 
-### Template Helpers Pattern
+### Multi-Component Charts Pattern
 All charts follow standard Helm helper structure in `_helpers.tpl`:
 ```go
 {{- define "<chart>.name" -}}...{{- end }}
@@ -77,10 +102,25 @@ All charts follow standard Helm helper structure in `_helpers.tpl`:
 {{- define "<chart>.selectorLabels" -}}...{{- end }}
 ```
 
-For multi-component charts, add component-specific variants:
+For multi-component charts (homebridge, xcarve), add component-specific variants:
 ```go
-{{- define "frontst.scrypted.labels" -}}
-{{- define "frontst.mosquitto.selectorLabels" -}}
+{{- define "homebridge.mosquitto.labels" -}}
+{{- define "homebridge.mosquitto.selectorLabels" -}}
+{{- define "xcarve.cncjs.labels" -}}
+{{- define "xcarve.mjpgStreamer.labels" -}}
+```
+
+Example multi-component template structure:
+```yaml
+{{- if .Values.mosquitto.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "homebridge.fullname" . }}-mosquitto
+  labels:
+    {{- include "homebridge.mosquitto.labels" . | nindent 4 }}
+...
+{{- end }}
 ```
 
 ### Values.yaml Organization
@@ -123,7 +163,7 @@ persistentVolumeClaim:
 ### Device Access Failures
 **Required**: `privileged: true` for serial/USB devices  
 **Common issue**: Device paths change on reboot (e.g., `/dev/ttyACM0` → `/dev/ttyACM1`)  
-**FCluster Requirements
+**Fix**: Use udev rules or `/dev/serial/by-id/*` paths in `devices.serial`
 
 ### Intel GPU Device Plugin
 For hardware transcoding (Scrypted, Frigate), install Intel device plugins:
@@ -151,12 +191,12 @@ Edge deployments default to `hostPath`. For cluster setups:
 cd charts/
 helm create my-service
 # Edit Chart.yaml, values.yaml, templates/
-k8s-helpers.sh helm-install my-service test-release
+scripts/k8s-helpers.sh helm-install my-service test-release
 ```
 
 ### Migrating from Docker Compose
 1. Copy service config from `scrypted-compose.yaml` or similar
-2. Create chart structure matching existing single-service charts (like scrypted) or multi-component charts (like frontst)
+2. Create chart structure matching existing single-service charts (scrypted, iperf3) or multi-component charts (homebridge, xcarve)
 3. Key translations:
    - `network_mode: host` → `hostNetwork: true`
    - `volumes` → `persistence.hostPath` or `volumeMounts`
@@ -167,18 +207,16 @@ k8s-helpers.sh helm-install my-service test-release
 ### Chart Testing Workflow
 ```bash
 # Install and watch logs
-k8s-helpers.sh helm-install my-chart test-release
-k8s-helpers.sh helm-logs test-release
+scripts/k8s-helpers.sh helm-install my-chart test-release
+scripts/k8s-helpers.sh helm-logs test-release
 
 # Iterate on templates
-k8s-helpers.sh helm-upgrade my-chart test-release --set key=value
+scripts/k8s-helpers.sh helm-upgrade my-chart test-release --set key=value
 
 # Check status and events
-k8s-helpers.sh helm-status test-release
+scripts/k8s-helpers.sh helm-status test-release
 kubectl get events --sort-by='.lastTimestamp' | tail -20
 ```
-
-## ix**: Use udev rules or `/dev/serial/by-id/*` paths in `devices.serial`
 
 ### Pod Label Selectors
 Scripts detect pods via multiple label strategies:
@@ -186,6 +224,24 @@ Scripts detect pods via multiple label strategies:
 2. `app=<selector>` (extracted from YAML metadata.labels.app)
 
 Always include `app: <name>` in deployment labels for compatibility.
+
+## Cluster Requirements
+
+### Edge Deployment (Single-Node)
+- Default storage: `hostPath` persistence (paths must exist on node)
+- Use `hostNetwork: true` for IoT device discovery (mDNS, SSDP)
+- Single node means `Recreate` deployment strategy to prevent port conflicts
+
+### Cluster Deployment (Multi-Node)
+- Use `persistence.type: pvc` with a StorageClass
+- Install Intel GPU Device Plugin for hardware transcoding:
+  ```bash
+  kubectl apply -k https://github.com/intel/intel-device-plugins-for-kubernetes/deployments/gpu_plugin/overlays/nfd_labeled_nodes
+  ```
+- Install Metrics Server for resource monitoring:
+  ```bash
+  kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+  ```
 
 ## Release Process
 

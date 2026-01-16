@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "auto-mount.fullname" . }}
+  labels:
+    {{- include "auto-mount.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "auto-mount.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "auto-mount.selectorLabels" . | nindent 8 }}
+    spec:
+      hostNetwork: {{ .Values.hostNetwork }}
+      hostPID: true
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: auto-mount
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["/bin/sh", "/scripts/entrypoint.sh"]
+        securityContext:
+          privileged: {{ .Values.securityContext.privileged }}
+        ports:
+        - name: webui
+          containerPort: {{ .Values.webui.port }}
+          protocol: TCP
+        - name: smb
+          containerPort: 445
+          protocol: TCP
+        - name: smb-netbios
+          containerPort: 139
+          protocol: TCP
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+        - name: app
+          mountPath: /app
+        - name: dev
+          mountPath: /dev
+        - name: hotswap-mount
+          mountPath: {{ .Values.hotswapPath }}
+        - name: optical-mount
+          mountPath: {{ .Values.opticalPath }}
+        - name: raid5
+          mountPath: /raid5
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+      volumes:
+      - name: scripts
+        configMap:
+          name: {{ include "auto-mount.fullname" . }}-scripts
+          items:
+          - key: entrypoint.sh
+            path: entrypoint.sh
+            mode: 0755
+      - name: app
+        configMap:
+          name: {{ include "auto-mount.fullname" . }}-scripts
+          items:
+          - key: webui.py
+            path: webui.py
+            mode: 0644
+      - name: dev
+        hostPath:
+          path: /dev
+      - name: hotswap-mount
+        hostPath:
+          path: {{ .Values.hotswapPath }}
+          type: DirectoryOrCreate
+      - name: optical-mount
+        hostPath:
+          path: {{ .Values.opticalPath }}
+          type: DirectoryOrCreate
+      - name: raid5
+        hostPath:
+          path: /raid5

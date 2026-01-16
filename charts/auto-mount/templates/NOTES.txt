@@ -1,0 +1,33 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Auto-Mount Service has been deployed.
+
+1) Web UI Access:
+{{- if .Values.ingress.enabled }}
+   https://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+{{- else }}
+   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "auto-mount.fullname" . }} {{ .Values.webui.port }}:{{ .Values.webui.port }}
+   Then access: http://localhost:{{ .Values.webui.port }}
+{{- end }}
+
+2) SMB Share Access:
+   Hot-Swap: \\<node-ip>\hotswap
+     Username: {{ .Values.samba.username }}
+     Password: (configured in values)
+   
+   Optical: \\<node-ip>\optical
+     Read-only, guest access allowed
+
+3) Monitor the auto-mount service:
+   kubectl logs -n {{ .Release.Namespace }} -l app={{ include "auto-mount.name" . }} -f
+
+4) Service features:
+   - Auto-mounts hot-swap drives to {{ .Values.hotswapPath }}
+   - Auto-mounts optical discs to {{ .Values.opticalPath }}
+   - Web UI for unmount/eject operations
+   - SMB sharing for both mount points
+
+IMPORTANT:
+- This service requires privileged mode for mount operations
+- Ensure your node is labeled: automount=true
+- Mount points are shared via SMB (ports 139, 445)

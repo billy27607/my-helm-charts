@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "auto-mount.fullname" . }}
+  labels:
+    {{- include "auto-mount.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+  - port: {{ .Values.service.webPort }}
+    targetPort: webui
+    protocol: TCP
+    name: webui
+  - port: {{ .Values.service.smbPort }}
+    targetPort: smb
+    protocol: TCP
+    name: smb
+  - port: {{ .Values.service.smbNetbiosPort }}
+    targetPort: smb-netbios
+    protocol: TCP
+    name: smb-netbios
+  selector:
+    {{- include "auto-mount.selectorLabels" . | nindent 4 }}
