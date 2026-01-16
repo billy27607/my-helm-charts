@@ -244,8 +244,8 @@ data:
           
           # Enable share if any partition is mounted
           if [ "$HOTSWAP_MOUNTED" = "true" ]; then
-            # Check if share is already available
-            if ! grep -A 5 "^\[hotswap\]" /etc/samba/smb.conf | grep -q "available = yes"; then
+            # Only enable and log if not already enabled
+            if [ "$HOTSWAP_SHARE_ENABLED" = "false" ]; then
               echo "Enabling hotswap share (drive mounted)"
               update_share "hotswap" "yes"
               HOTSWAP_SHARE_ENABLED=true
