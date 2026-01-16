@@ -12,10 +12,6 @@ data:
     # Install required packages
     apk add --no-cache samba python3 py3-pip bash util-linux e2fsprogs procps exfat-utils udftools cdrkit cdparanoia flac curl jq wget libdiscid cd-discid avahi avahi-tools dbus
     
-    # Install wsdd for WS-Discovery (better SMB discovery on modern Windows/macOS)
-    wget -O /usr/local/bin/wsdd https://raw.githubusercontent.com/christgau/wsdd/master/src/wsdd.py
-    chmod +x /usr/local/bin/wsdd
-    
     # Load CD-ROM filesystem kernel modules
     modprobe isofs 2>/dev/null || true
     modprobe udf 2>/dev/null || true
@@ -113,13 +109,16 @@ data:
     # Enable the user
     smbpasswd -e {{ .Values.samba.username }}
     
+    # Configure Avahi hostname
+    sed -i 's/#host-name=.*/host-name=AUTOMOUNT/' /etc/avahi/avahi-daemon.conf
+    
     # Configure Avahi for SMB service discovery
     mkdir -p /etc/avahi/services
     cat > /etc/avahi/services/smb.service <<'AVAHIEOF'
     <?xml version="1.0" standalone='no'?>
     <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
     <service-group>
-      <name replace-wildcards="yes">%h</name>
+      <name>AUTOMOUNT</name>
       <service>
         <type>_smb._tcp</type>
         <port>445</port>
@@ -138,9 +137,6 @@ data:
     
     # Start Avahi daemon for Bonjour/mDNS (macOS Finder Locations)
     avahi-daemon -D
-    
-    # Start wsdd for WS-Discovery (Windows network discovery, uses hostname)
-    /usr/local/bin/wsdd -d WORKGROUP &
     
     # Start Samba
     smbd -D
