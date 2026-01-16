@@ -5,7 +5,7 @@ image:
   pullPolicy: IfNotPresent
 
 # Service display name (shown in Finder Locations)
-serviceName: Automount
+serviceName: automount
 
 # Host network for device access
 hostNetwork: true

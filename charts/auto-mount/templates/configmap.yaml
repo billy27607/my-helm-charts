@@ -194,6 +194,7 @@ data:
     # Track if connections have been made and ejected state
     HOTSWAP_HAD_CONNECTION=false
     HOTSWAP_EJECTED=false
+    HOTSWAP_SHARE_ENABLED=false
     OPTICAL_HAD_CONNECTION=false
     
     # Initialize rip flag (use file flag for subshell compatibility)
@@ -247,6 +248,7 @@ data:
             if ! grep -A 5 "^\[hotswap\]" /etc/samba/smb.conf | grep -q "available = yes"; then
               echo "Enabling hotswap share (drive mounted)"
               update_share "hotswap" "yes"
+              HOTSWAP_SHARE_ENABLED=true
             fi
           fi
         fi
@@ -271,8 +273,11 @@ data:
               rmdir "$mount_point" 2>/dev/null
             fi
           done
-          echo "Disabling hotswap share (drive removed)"
-          update_share "hotswap" "no"
+          if [ "$HOTSWAP_SHARE_ENABLED" = "true" ]; then
+            echo "Disabling hotswap share (drive removed)"
+            update_share "hotswap" "no"
+            HOTSWAP_SHARE_ENABLED=false
+          fi
         fi
         
         HOTSWAP_HAD_CONNECTION=false
