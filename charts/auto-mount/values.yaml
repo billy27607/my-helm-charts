@@ -4,6 +4,9 @@ image:
   tag: "3.19"
   pullPolicy: IfNotPresent
 
+# Service display name (shown in Finder Locations)
+serviceName: Automount
+
 # Host network for device access
 hostNetwork: true
 

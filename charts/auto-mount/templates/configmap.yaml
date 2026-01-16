@@ -110,7 +110,7 @@ data:
     smbpasswd -e {{ .Values.samba.username }}
     
     # Configure Avahi hostname
-    sed -i 's/#host-name=.*/host-name=Automount/' /etc/avahi/avahi-daemon.conf
+    sed -i 's/#host-name=.*/host-name={{ .Values.serviceName }}/' /etc/avahi/avahi-daemon.conf
     
     # Configure Avahi for SMB service discovery
     mkdir -p /etc/avahi/services
@@ -118,7 +118,7 @@ data:
     <?xml version="1.0" standalone='no'?>
     <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
     <service-group>
-      <name>Automount</name>
+      <name>{{ .Values.serviceName }}</name>
       <service>
         <type>_smb._tcp</type>
         <port>445</port>
