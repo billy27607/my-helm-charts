@@ -139,8 +139,8 @@ data:
     # Start Avahi daemon for Bonjour/mDNS (macOS Finder Locations)
     avahi-daemon -D
     
-    # Start wsdd for WS-Discovery (Windows network discovery)
-    /usr/local/bin/wsdd -d WORKGROUP -n AUTOMOUNT &
+    # Start wsdd for WS-Discovery (Windows network discovery, uses hostname)
+    /usr/local/bin/wsdd -d WORKGROUP &
     
     # Start Samba
     smbd -D
