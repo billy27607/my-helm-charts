@@ -23,6 +23,66 @@ if ! command -v kubectl &> /dev/null; then
     exit 1
 fi
 
+# Function to wait for service readiness by checking logs
+wait_for_service_ready() {
+    local release_name="$1"
+    local namespace="$2"
+    local timeout="${3:-120}"  # Default 120 seconds timeout
+    local ready_pattern="${4:-service ready|Starting server|Started}"  # Default patterns
+    
+    echo -e "\n${BLUE}=== Waiting for service to be ready ===${NC}"
+    echo -e "${YELLOW}Checking logs for: $ready_pattern${NC}"
+    
+    local elapsed=0
+    local pod_name=""
+    
+    # First wait for pod to exist
+    while [[ $elapsed -lt $timeout ]]; do
+        pod_name=$(kubectl get pods -n "$namespace" -l "app.kubernetes.io/instance=$release_name" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+        if [[ -n "$pod_name" ]]; then
+            break
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+    
+    if [[ -z "$pod_name" ]]; then
+        echo -e "${YELLOW}Warning: Could not find pod for release $release_name${NC}"
+        return 0  # Don't fail, just warn
+    fi
+    
+    echo -e "${YELLOW}Waiting for pod $pod_name to be ready...${NC}"
+    
+    # Wait for pod to be Running
+    while [[ $elapsed -lt $timeout ]]; do
+        local pod_status=$(kubectl get pod "$pod_name" -n "$namespace" -o jsonpath='{.status.phase}' 2>/dev/null)
+        if [[ "$pod_status" == "Running" ]]; then
+            break
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+    
+    # Now check logs for service ready message
+    echo -e "${YELLOW}Checking service logs for readiness...${NC}"
+    while [[ $elapsed -lt $timeout ]]; do
+        if kubectl logs "$pod_name" -n "$namespace" 2>/dev/null | grep -qiE "$ready_pattern"; then
+            echo -e "${GREEN}✓ Service is ready!${NC}"
+            return 0
+        fi
+        sleep 3
+        elapsed=$((elapsed + 3))
+        # Show a progress indicator every 15 seconds
+        if [[ $((elapsed % 15)) -eq 0 ]]; then
+            echo -e "${YELLOW}  Still waiting... ($elapsed seconds elapsed)${NC}"
+        fi
+    done
+    
+    echo -e "${YELLOW}Warning: Timeout waiting for service ready message after ${timeout}s${NC}"
+    echo -e "${YELLOW}Service may still be initializing. Check logs with: kubectl logs $pod_name -n $namespace${NC}"
+    return 0  # Don't fail the deployment, just warn
+}
+
 # Get the command
 COMMAND="${1:-}"
 
@@ -191,6 +251,22 @@ case "$COMMAND" in
         helm install "$RELEASE_NAME" "$CHART_PATH" --create-namespace --wait "${EXTRA_ARGS[@]}"
 
         echo -e "\n${GREEN}Installation complete!${NC}"
+        
+        # Extract namespace for service verification
+        NAMESPACE="default"
+        for i in "${!EXTRA_ARGS[@]}"; do
+            if [[ "${EXTRA_ARGS[$i]}" == "--namespace" || "${EXTRA_ARGS[$i]}" == "-n" ]]; then
+                NAMESPACE="${EXTRA_ARGS[$((i+1))]}"
+                break
+            elif [[ "${EXTRA_ARGS[$i]}" == "--namespace="* ]]; then
+                NAMESPACE="${EXTRA_ARGS[$i]#*=}"
+                break
+            fi
+        done
+        
+        # Wait for service to be ready
+        wait_for_service_ready "$RELEASE_NAME" "$NAMESPACE" 120 "service ready|Starting server|Started|Listening on"
+        
         echo -e "\n${BLUE}=== Release Status ===${NC}"
         # Extract namespace from EXTRA_ARGS for status command
         NAMESPACE_ARG=()
@@ -250,19 +326,20 @@ case "$COMMAND" in
         echo ""
 
         # Check for other releases using the same chart (potential conflicts)
-        CONFLICTING_RELEASES=$(helm list --output json | jq -r --arg chart "$CHART_NAME" --arg release "$RELEASE_NAME" \
-            '.[] | select(.chart | contains($chart)) | select(.name != $release) | .name' 2>/dev/null)
+        # First check in all namespaces
+        CONFLICTING_RELEASES=$(helm list -A --output json | jq -r --arg chart "$CHART_NAME" --arg release "$RELEASE_NAME" \
+            '.[] | select(.chart | contains($chart)) | select(.name != $release) | "\(.namespace):\(.name)"' 2>/dev/null)
 
         if [[ -n "$CONFLICTING_RELEASES" ]]; then
             echo -e "${YELLOW}=== Found other releases using the same chart ===${NC}"
             echo -e "These releases may conflict (e.g., hostPort bindings):\n"
-            for rel in $CONFLICTING_RELEASES; do
-                echo -e "  - ${YELLOW}$rel${NC}"
+            echo "$CONFLICTING_RELEASES" | while IFS=: read -r ns rel; do
+                echo -e "  - ${YELLOW}$rel${NC} (namespace: $ns)"
             done
             echo -e "\n${YELLOW}Uninstalling conflicting releases...${NC}\n"
-            for rel in $CONFLICTING_RELEASES; do
-                echo -e "Uninstalling: $rel"
-                helm uninstall "$rel" --wait 2>/dev/null || true
+            echo "$CONFLICTING_RELEASES" | while IFS=: read -r ns rel; do
+                echo -e "Uninstalling: $rel from namespace $ns"
+                helm uninstall "$rel" --namespace "$ns" --wait 2>/dev/null || true
             done
             echo ""
         fi
@@ -270,6 +347,22 @@ case "$COMMAND" in
         helm upgrade "$RELEASE_NAME" "$CHART_PATH" --install --wait "${EXTRA_ARGS[@]}"
 
         echo -e "\n${GREEN}Upgrade complete!${NC}"
+        
+        # Extract namespace for service verification
+        NAMESPACE="default"
+        for i in "${!EXTRA_ARGS[@]}"; do
+            if [[ "${EXTRA_ARGS[$i]}" == "--namespace" || "${EXTRA_ARGS[$i]}" == "-n" ]]; then
+                NAMESPACE="${EXTRA_ARGS[$((i+1))]}"
+                break
+            elif [[ "${EXTRA_ARGS[$i]}" == "--namespace="* ]]; then
+                NAMESPACE="${EXTRA_ARGS[$i]#*=}"
+                break
+            fi
+        done
+        
+        # Wait for service to be ready
+        wait_for_service_ready "$RELEASE_NAME" "$NAMESPACE" 120 "service ready|Starting server|Started|Listening on"
+        
         echo -e "\n${BLUE}=== Release Status ===${NC}"
         # Extract namespace from EXTRA_ARGS for status command
         NAMESPACE_ARG=()
@@ -364,6 +457,10 @@ case "$COMMAND" in
 
         # Try different label selectors to find pods
         POD=$(kubectl get pods -n "$NAMESPACE" -l "app.kubernetes.io/instance=$RELEASE_NAME" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+
+        if [[ -z "$POD" ]]; then
+            POD=$(kubectl get pods -n "$NAMESPACE" -l "app=$RELEASE_NAME" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+        fi
 
         if [[ -z "$POD" ]]; then
             POD=$(kubectl get pods -n "$NAMESPACE" -l "app=$RELEASE_NAME-server" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)

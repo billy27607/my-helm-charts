@@ -10,13 +10,24 @@ data:
     set -e
     
     # Install required packages
-    apk add --no-cache samba python3 py3-pip bash util-linux e2fsprogs procps exfat-utils udftools cdrkit cdparanoia flac curl jq wget libdiscid cd-discid avahi avahi-tools dbus
+    export DEBIAN_FRONTEND=noninteractive
+    
+    # Add contrib repository for libdvdcss2
+    echo "deb http://deb.debian.org/debian bookworm main contrib" > /etc/apt/sources.list
+    echo "deb http://deb.debian.org/debian-security bookworm-security main contrib" >> /etc/apt/sources.list
+    echo "deb http://deb.debian.org/debian bookworm-updates main contrib" >> /etc/apt/sources.list
+    
+    apt-get update && apt-get install -y --no-install-recommends \
+      samba python3 python3-pip python3-venv bash util-linux e2fsprogs procps \
+      exfatprogs udftools genisoimage cdparanoia flac curl jq wget libdiscid0 \
+      libdiscid-dev cd-discid avahi-daemon dbus handbrake-cli libdvdcss2 eject \
+      && rm -rf /var/lib/apt/lists/*
     
     # Load CD-ROM filesystem kernel modules
     modprobe isofs 2>/dev/null || true
     modprobe udf 2>/dev/null || true
     
-    pip3 install --break-system-packages flask
+    pip3 install --break-system-packages flask gunicorn musicbrainzngs discid
     
     # Create mount points
     mkdir -p {{ .Values.hotswapPath }} {{ .Values.opticalPath }}
@@ -30,7 +41,7 @@ data:
        server string = Auto-Mount Server
        security = user
        map to guest = Never
-       log level = 2
+       log level = 0
        min protocol = SMB2
        server min protocol = SMB2
        # Network discovery
@@ -39,15 +50,6 @@ data:
        wins support = yes
        # Disable hostname in NetBIOS
        dns proxy = no
-       # macOS compatibility
-       vfs objects = fruit streams_xattr
-       fruit:metadata = stream
-       fruit:model = MacSamba
-       fruit:posix_rename = yes
-       fruit:veto_appledouble = no
-       fruit:wipe_intentionally_left_blank_rfork = yes
-       fruit:delete_empty_adfiles = yes
-       fruit:aapl = yes
     
     [hotswap]
        path = {{ .Values.hotswapPath }}
@@ -59,7 +61,6 @@ data:
        force user = root
        create mask = 0664
        directory mask = 0775
-       vfs objects = fruit streams_xattr
        available = no
     
     [optical]
@@ -72,7 +73,6 @@ data:
        force user = root
        create mask = 0664
        directory mask = 0775
-       vfs objects = fruit streams_xattr
        available = no
     
     [cd-rips]
@@ -99,10 +99,10 @@ data:
       smbcontrol all reload-config 2>/dev/null || killall -HUP smbd 2>/dev/null
     }
     
-    # Create system user for Samba
-    adduser -D -H -s /sbin/nologin {{ .Values.samba.username }} || true
+    # Create system user for Samba (Debian syntax)
+    adduser --system --no-create-home --shell /usr/sbin/nologin {{ .Values.samba.username }} || true
     
-    # Create Samba user (Alpine requires -a flag for add)
+    # Create Samba user
     (echo "{{ .Values.samba.password }}"; echo "{{ .Values.samba.password }}") | \
       smbpasswd -a -s {{ .Values.samba.username }}
     
@@ -155,7 +155,6 @@ data:
     if mount | grep -q "^/dev/.* on {{ .Values.hotswapPath }} "; then
       MOUNTED_DEV=$(mount | grep " on {{ .Values.hotswapPath }} " | awk '{print $1}' | sed 's|/dev/||' | sed 's|[0-9]*$||')
       if [ "$MOUNTED_DEV" != "$HOTSWAP_DEV" ]; then
-        echo "Unmounting wrong device from {{ .Values.hotswapPath }}"
         umount {{ .Values.hotswapPath }} 2>/dev/null || sleep 1
       fi
     fi
@@ -165,12 +164,9 @@ data:
       if [ -d "$mount_point" ] && mount | grep -q " on $mount_point"; then
         if [ -n "$HOTSWAP_DEV" ]; then
           if ! mount | grep -q "^/dev/${HOTSWAP_DEV}[0-9]* on $mount_point"; then
-            echo "Unmounting wrong device from $mount_point"
             umount "$mount_point" 2>/dev/null || sleep 1
           fi
         else
-          # No device on hotswap port - unmount everything
-          echo "Unmounting $mount_point (no device on hotswap port)"
           umount "$mount_point" 2>/dev/null || sleep 1
         fi
       fi
@@ -180,607 +176,84 @@ data:
     if mount | grep -q " on {{ .Values.opticalPath }} "; then
       MOUNTED_DEV=$(mount | grep " on {{ .Values.opticalPath }} " | awk '{print $1}')
       if [ "$MOUNTED_DEV" != "/dev/sr0" ]; then
-        echo "Unmounting wrong device from {{ .Values.opticalPath }}: $MOUNTED_DEV"
-        umount {{ .Values.opticalPath }} || sleep 1
+        umount {{ .Values.opticalPath }} 2>/dev/null || sleep 1
       fi
     fi
     
     # Create CD rips directory
     mkdir -p /raid5/cd-rips
     
-    # Monitor and auto-mount/unmount based on device presence and SMB connections
-    echo "Auto-mount service started. Monitoring devices and connections..."
+    # Disable automatic media polling and auto-close at kernel level
+    # Try to set sr_mod auto_close parameter to 0
+    if [ -f /sys/module/sr_mod/parameters/auto_close ]; then
+      echo 0 > /sys/module/sr_mod/parameters/auto_close 2>/dev/null || true
+    fi
+    # Also use eject -i off as backup
+    eject -i off /dev/sr0 2>/dev/null || true
     
-    # Track if connections have been made and ejected state
-    HOTSWAP_HAD_CONNECTION=false
-    HOTSWAP_EJECTED=false
-    HOTSWAP_SHARE_ENABLED=false
-    OPTICAL_HAD_CONNECTION=false
-    
-    # Initialize rip flag (use file flag for subshell compatibility)
-    RIP_FLAG="/tmp/cd_being_ripped"
-    rm -f "$RIP_FLAG"
-    
-    HOTSWAP_IDLE_CYCLES=0
-    OPTICAL_IDLE_CYCLES=0
-    
+    # Start web UI with auto-restart loop (for quick-deploy)
+    cd /app
     while true; do
-      # Check for hot-swap drive partitions
-      HOTSWAP_MOUNTED=false
-      # Check if any device is connected to the hotswap SATA port
-      # Use the .0 variant which is more reliable for port detection
-      HOTSWAP_PORT="{{ .Values.hotswapDevice }}.0"
-      if [ -L "$HOTSWAP_PORT" ]; then
-        # Only mount if not ejected - wait for physical removal first
-        if [ "$HOTSWAP_EJECTED" = "false" ]; then
-          # Clean up any empty partition directories from previous drives
-          for old_dir in {{ .Values.hotswapPath }}/partition*; do
-            if [ -d "$old_dir" ] && ! mount | grep -q " on $old_dir"; then
-              rmdir "$old_dir" 2>/dev/null
-            fi
-          done
-          
-          # Find all partitions on the device
-          for partition in ${HOTSWAP_PORT}-part*; do
-            if [ -b "$partition" ]; then
-              # Extract partition number (e.g., ata-2.0-part1 -> 1)
-              PART_NUM=$(echo "$partition" | grep -o '[0-9]*$')
-              MOUNT_POINT="{{ .Values.hotswapPath }}/partition${PART_NUM}"
-              
-              # Create mount point if it doesn't exist
-              mkdir -p "$MOUNT_POINT" 2>/dev/null
-              
-              # Mount if not already mounted
-              if ! mount | grep -q " on $MOUNT_POINT"; then
-                if mount "$partition" "$MOUNT_POINT" 2>/dev/null; then
-                  echo "Mounted $partition to $MOUNT_POINT"
-                  HOTSWAP_MOUNTED=true
-                fi
-              else
-                HOTSWAP_MOUNTED=true
-              fi
-            fi
-          done
-          
-          # Enable share if any partition is mounted
-          if [ "$HOTSWAP_MOUNTED" = "true" ]; then
-            # Only enable and log if not already enabled
-            if [ "$HOTSWAP_SHARE_ENABLED" = "false" ]; then
-              echo "Enabling hotswap share (drive mounted)"
-              update_share "hotswap" "yes"
-              HOTSWAP_SHARE_ENABLED=true
-            fi
-          fi
-        fi
-      else
-        # Device physically removed - reset ejected state and unmount
-        if [ "$HOTSWAP_EJECTED" = "true" ]; then
-          echo "Hot-swap drive on port {{ .Values.hotswapDevice }} physically removed - ready for new drive"
-          HOTSWAP_EJECTED=false
-        fi
-        
-        if mount | grep -q " on {{ .Values.hotswapPath }}/partition[0-9]"; then
-          echo "Hot-swap drive removed - unmounting all partitions"
-          for mount_point in {{ .Values.hotswapPath }}/partition*; do
-            if mount | grep -q " on $mount_point"; then
-              umount "$mount_point" 2>/dev/null && echo "Unmounted $mount_point"
-              rmdir "$mount_point" 2>/dev/null
-            fi
-          done
-          # Clean up any remaining empty partition directories
-          for mount_point in {{ .Values.hotswapPath }}/partition*; do
-            if [ -d "$mount_point" ]; then
-              rmdir "$mount_point" 2>/dev/null
-            fi
-          done
-          if [ "$HOTSWAP_SHARE_ENABLED" = "true" ]; then
-            echo "Disabling hotswap share (drive removed)"
-            update_share "hotswap" "no"
-            HOTSWAP_SHARE_ENABLED=false
-          fi
-        fi
-        
-        HOTSWAP_HAD_CONNECTION=false
-        HOTSWAP_IDLE_CYCLES=0
-      fi
-      
-      # Check for optical disc (use cdparanoia to detect audio CDs, dd for data discs)
-      {{- if .Values.cdRippingEnabled }}
-      RIP_STATE="/tmp/cd_rip_state"
-      # Skip if already ripping OR if state shows rip phase completed (encoding may still be running)
-      if [ -f "$RIP_FLAG" ]; then
-        : # Rip in progress, skipping disc check
-      elif [ -f "$RIP_STATE" ]; then
-        # State file exists - check what state we're in
-        if grep -q "RIP_PHASE_COMPLETED=YES" "$RIP_STATE" 2>/dev/null; then
-          : # Rip completed, waiting for disc removal
-        elif grep -q "STARTING" "$RIP_STATE" 2>/dev/null; then
-          # Check if the rip started recently (within last 10 minutes = 600 seconds)
-          START_TIME=$(grep "TIMESTAMP_START=" "$RIP_STATE" 2>/dev/null | cut -d= -f2)
-          CURRENT_TIME=$(date +%s)
-          if [ -n "$START_TIME" ]; then
-            TIME_DIFF=$((CURRENT_TIME - START_TIME))
-            if [ $TIME_DIFF -lt 600 ]; then
-              : # Rip started recently, still active
-            else
-              echo "WARNING: Rip started ${TIME_DIFF}s ago but flag missing - possible crash"
-            fi
-          fi
-        fi
-      elif [ -b /dev/sr0 ]; then
-        # Check if disc is present - try cdparanoia first for audio, then dd for data
-        # Note: cdparanoia needs time to spin up the drive, 10s timeout allows for this
-        DISC_PRESENT=false
-        if timeout 10 cdparanoia -Q -d /dev/sr0 2>&1 | grep -q "Table of contents"; then
-          DISC_PRESENT=true
-          echo "Audio CD detected, starting rip..."
-        elif timeout 5 dd if=/dev/sr0 bs=2048 count=1 of=/dev/null 2>/dev/null; then
-          DISC_PRESENT=true
-          echo "Data disc detected"
-        fi
-        
-        if [ "$DISC_PRESENT" = "true" ]; then
-          if ! mount | grep -q "on {{ .Values.opticalPath }}"; then
-            echo "Optical disc detected: /dev/sr0"
-            # Wait a moment for disc to be ready
-            sleep 2
-            # Try to mount as data disc first (try multiple filesystem types)
-            MOUNTED=false
-            for fstype in udf iso9660 auto; do
-            if mount -t $fstype -o ro /dev/sr0 {{ .Values.opticalPath }} 2>/dev/null; then
-              echo "Mounted data disc to {{ .Values.opticalPath }} (fs: $fstype)"
-              update_share "optical" "yes"
-              MOUNTED=true
-              break
-            fi
-          done
-          
-          if [ "$MOUNTED" = "false" ]; then
-            echo "Data disc mount failed - checking for audio CD"
-            # Check if it's actually an audio CD using cdparanoia
-            if cdparanoia -Q 2>&1 | grep -q "Table of contents"; then
-              echo "Audio CD confirmed - ripping to FLAC with metadata lookup"
-              
-              # Check if we should actually start a new rip
-              RIP_STATE="/tmp/cd_rip_state"
-              if [ -f "$RIP_STATE" ] && grep -q "RIP_PHASE_COMPLETED=YES" "$RIP_STATE" 2>/dev/null; then
-                echo "Rip already completed - NOT starting new rip (this shouldn't happen)"
-              else
-                # Clear old state and start fresh
-                rm -f "$RIP_STATE" 2>/dev/null
-                echo "STARTING" > "$RIP_STATE"
-                echo "TIMESTAMP_START=$(date +%s)" >> "$RIP_STATE"
-                # Set flag file AFTER clearing state
-                touch "$RIP_FLAG"
-              
-              (
-                # Ensure flags are cleaned up on exit, but preserve state for debugging
-                trap 'EXIT_CODE=$?; echo "SUBPROCESS_EXIT_CODE=$EXIT_CODE" >> "$RIP_STATE" 2>/dev/null || true; echo "EXITED" >> "$RIP_STATE" 2>/dev/null || true; rm -f "/tmp/cd_being_ripped" 2>/dev/null || true' EXIT
-                # Explicitly disable exit on error globally
-                set +e
-                
-                echo "========================================"
-                echo "Starting rip subprocess PID: $$"
-                echo "State file: $RIP_STATE"
-                echo "========================================"
-                
-                # Get disc info and lookup metadata
-                DISC_ID=$(date +%Y%m%d_%H%M%S)
-                OUTPUT_DIR="/raid5/cd-rips/AudioCD_${DISC_ID}"
-                mkdir -p "$OUTPUT_DIR"
-                
-                # Get CD disc ID for metadata lookup
-                echo "Looking up CD metadata..."
-                CDDB_ID=$(cd-discid /dev/sr0 2>/dev/null | awk '{print $1}')
-                
-                # Query MusicBrainz for metadata
-                if [ -n "$CDDB_ID" ]; then
-                  MB_URL="https://musicbrainz.org/ws/2/discid/${CDDB_ID}?fmt=json&inc=artist-credits+recordings"
-                  METADATA=$(curl -s -A "AutoMount/1.0" "$MB_URL" 2>/dev/null)
-                  
-                  if echo "$METADATA" | jq -e '.releases[0]' >/dev/null 2>&1; then
-                    ARTIST=$(echo "$METADATA" | jq -r '.releases[0]."artist-credit"[0].name' 2>/dev/null)
-                    ALBUM=$(echo "$METADATA" | jq -r '.releases[0].title' 2>/dev/null)
-                    YEAR=$(echo "$METADATA" | jq -r '.releases[0].date' 2>/dev/null | cut -d'-' -f1)
-                    echo "Found: $ARTIST - $ALBUM ($YEAR)"
-                    
-                    # Save metadata to file
-                    echo "Artist: $ARTIST" > "$OUTPUT_DIR/metadata.txt"
-                    echo "Album: $ALBUM" >> "$OUTPUT_DIR/metadata.txt"
-                    echo "Year: $YEAR" >> "$OUTPUT_DIR/metadata.txt"
-                    echo "Disc ID: $CDDB_ID" >> "$OUTPUT_DIR/metadata.txt"
-                  else
-                    echo "Metadata not found for disc ID: $CDDB_ID"
-                    ARTIST="Unknown Artist"
-                    ALBUM="Unknown Album"
-                    YEAR=""
-                  fi
-                else
-                  echo "Could not get disc ID"
-                  ARTIST="Unknown Artist"
-                  ALBUM="Unknown Album"
-                  YEAR=""
-                fi
-                
-                # Rip audio CD using cdparanoia with intelligent speed stepping
-                echo "Ripping audio CD with cdparanoia starting at {{ .Values.cdRipSpeed }}x speed..."
-                cd "$OUTPUT_DIR" || { echo "ERROR: Failed to cd to $OUTPUT_DIR"; exit 1; }
-                
-                # Get track list (with error handling)
-                TRACK_COUNT=$(cdparanoia -Q -d /dev/sr0 2>&1 | grep -c "^\s*[0-9]\+\." || echo "0")
-                TRACK_COUNT=${TRACK_COUNT:-0}
-                if [ "$TRACK_COUNT" -eq 0 ]; then
-                  echo "ERROR: Could not detect tracks on CD"
-                  exit 1
-                fi
-                echo "Found $TRACK_COUNT tracks to rip"
-                echo "TRACK_COUNT=$TRACK_COUNT" >> "$RIP_STATE"
-                
-                # Rip each track individually with automatic speed stepping on errors
-                TRACK_NUM=1
-                while [ $TRACK_NUM -le $TRACK_COUNT ]; do
-                  echo "TRACK_${TRACK_NUM}=STARTING" >> "$RIP_STATE"
-                  CURRENT_SPEED={{ .Values.cdRipSpeed }}
-                  SUCCESS=false
-                  RETRY_COUNT_AT_1X=0  # Prevent infinite retry at 1x speed
-                  
-                  while [ $CURRENT_SPEED -ge 1 ] && [ "$SUCCESS" = "false" ]; do
-                    echo "========================================"
-                    echo "[Track $TRACK_NUM/$TRACK_COUNT] Ripping at ${CURRENT_SPEED}x speed..."
-                    echo "========================================"
-                    
-                    # Calculate timeout based on speed (allow 10 minutes at 1x, scale down for higher speeds)
-                    # Formula: 600 seconds / speed = timeout (min 90s for fast speeds)
-                    TIMEOUT_SECS=$((600 / CURRENT_SPEED))
-                    if [ $TIMEOUT_SECS -lt 90 ]; then
-                      TIMEOUT_SECS=90
-                    fi
-                    echo "Using ${TIMEOUT_SECS}s timeout for ${CURRENT_SPEED}x speed"
-                    
-                    # Rip track with real-time error monitoring
-                    rm -f cdda.wav 2>/dev/null || true
-                    RIP_LOG="/tmp/cdpara_track${TRACK_NUM}.log"
-                    rm -f "$RIP_LOG" || true
-                    touch "$RIP_LOG"
-                    
-                    # Start cdparanoia with hard timeout wrapper to prevent hangs
-                    # Using timeout ensures kernel-level kill if process gets stuck in D state
-                    timeout -k 10 $TIMEOUT_SECS cdparanoia -d /dev/sr0 -S $CURRENT_SPEED $TRACK_NUM > "$RIP_LOG" 2>&1 &
-                    CDPARA_PID=$!
-                    echo "[Track $TRACK_NUM] Started cdparanoia PID: $CDPARA_PID (timeout: ${TIMEOUT_SECS}s)"
-                    
-                    # Monitor for errors in real-time
-                    SHOULD_RETRY=false
-                    ELAPSED=0
-                    LAST_ERROR_COUNT=0
-                    LAST_FILE_SIZE=0
-                    STALL_COUNT=0
-                    echo "Starting monitoring loop for track $TRACK_NUM (timeout: ${TIMEOUT_SECS}s)"
-                    while ps -p $CDPARA_PID > /dev/null 2>&1 || [ $? -eq 1 ]; do
-                      # Exit monitoring if process is gone
-                      if ! ps -p $CDPARA_PID > /dev/null 2>&1; then
-                        echo "Process $CDPARA_PID completed"
-                        break
-                      fi
-                      
-                      sleep 2
-                      ELAPSED=$((ELAPSED + 2))
-                      
-                      # Check for multiple error patterns that cdparanoia outputs (handle grep failures gracefully)
-                      CURRENT_ERROR_COUNT=$(grep -iE "error|skip|retry|abort" "$RIP_LOG" 2>/dev/null | wc -l || echo "0")
-                      CURRENT_ERROR_COUNT=${CURRENT_ERROR_COUNT:-0}
-                      
-                      # Check if output file is growing (progress indicator) - handle stat failures
-                      CURRENT_FILE_SIZE=$(stat -c%s cdda.wav 2>/dev/null || echo "0")
-                      CURRENT_FILE_SIZE=${CURRENT_FILE_SIZE:-0}
-                      
-                      if [ "$CURRENT_FILE_SIZE" = "$LAST_FILE_SIZE" ] && [ $ELAPSED -gt 10 ]; then
-                        STALL_COUNT=$((STALL_COUNT + 1))
-                        if [ $STALL_COUNT -gt 5 ]; then
-                          echo "Rip stalled - no progress for $((STALL_COUNT * 2))s (file size: $CURRENT_FILE_SIZE)"
-                          kill -TERM $CDPARA_PID 2>/dev/null || true
-                          sleep 1
-                          kill -KILL $CDPARA_PID 2>/dev/null || true
-                          SHOULD_RETRY=true
-                          break
-                        fi
-                      else
-                        STALL_COUNT=0
-                      fi
-                      LAST_FILE_SIZE=$CURRENT_FILE_SIZE
-                      
-                      # If we're seeing rapid errors (8+ errors), step down speed immediately
-                      ERROR_DELTA=$((CURRENT_ERROR_COUNT - LAST_ERROR_COUNT))
-                      if [ $CURRENT_ERROR_COUNT -gt 8 ] && [ $ERROR_DELTA -gt 3 ]; then
-                        echo "Rapid read errors detected ($CURRENT_ERROR_COUNT total, +$ERROR_DELTA in 2s) - stepping down speed"
-                        kill -TERM $CDPARA_PID 2>/dev/null || true
-                        sleep 1
-                        kill -KILL $CDPARA_PID 2>/dev/null || true
-                        SHOULD_RETRY=true
-                        break
-                      fi
-                      LAST_ERROR_COUNT=$CURRENT_ERROR_COUNT
-                      
-                      # Manual timeout check (shouldn't be needed with timeout command, but safety net)
-                      # Add 30s buffer beyond timeout command's limit
-                      if [ $ELAPSED -ge $((TIMEOUT_SECS + 30)) ]; then
-                        echo "Emergency timeout after ${ELAPSED}s (exceeded timeout + buffer)"
-                        kill -TERM $CDPARA_PID 2>/dev/null || true
-                        sleep 1
-                        kill -KILL $CDPARA_PID 2>/dev/null || true
-                        SHOULD_RETRY=true
-                        break
-                      fi
-                    done
-                    echo "Monitoring loop completed for track $TRACK_NUM (elapsed: ${ELAPSED}s, errors: $CURRENT_ERROR_COUNT)"
-                    
-                    # Wait for process to complete if still running (don't fail if process already exited)
-                    wait $CDPARA_PID 2>/dev/null || RIP_EXIT=$?
-                    RIP_EXIT=${RIP_EXIT:-0}
-                    echo "cdparanoia exit code: $RIP_EXIT"
-                    
-                    # Read the full output for later analysis
-                    RIP_OUTPUT=$(cat "$RIP_LOG" 2>/dev/null || echo "")
-                    
-                    # Check for timeout or read errors
-                    if [ "$SHOULD_RETRY" = "true" ]; then
-                      echo "[Track $TRACK_NUM] Detected errors or timeout at ${CURRENT_SPEED}x (exit: $RIP_EXIT)"
-                      rm -f cdda.wav 2>/dev/null || true
-                      
-                      # If already at 1x, increment retry counter
-                      if [ $CURRENT_SPEED -eq 1 ]; then
-                        RETRY_COUNT_AT_1X=$((RETRY_COUNT_AT_1X + 1))
-                        if [ $RETRY_COUNT_AT_1X -ge 3 ]; then
-                          echo "[Track $TRACK_NUM] WARNING: Failed 3 times at 1x speed, skipping"
-                          echo "TRACK_${TRACK_NUM}=FAILED_MAX_RETRIES" >> "$RIP_STATE"
-                          SUCCESS=true
-                          break
-                        else
-                          echo "[Track $TRACK_NUM] Retrying at 1x speed (attempt $((RETRY_COUNT_AT_1X + 1))/3)..."
-                        fi
-                      else
-                        # Try half speed
-                        CURRENT_SPEED=$((CURRENT_SPEED / 2))
-                        if [ $CURRENT_SPEED -lt 1 ]; then
-                          CURRENT_SPEED=1
-                        fi
-                        echo "[Track $TRACK_NUM] Retrying at ${CURRENT_SPEED}x speed..."
-                      fi
-                    elif echo "$RIP_OUTPUT" | grep -q "scsi_read error"; then
-                      echo "[Track $TRACK_NUM] Read errors detected at ${CURRENT_SPEED}x"
-                      rm -f cdda.wav 2>/dev/null || true
-                      
-                      # If already at 1x, increment retry counter
-                      if [ $CURRENT_SPEED -eq 1 ]; then
-                        RETRY_COUNT_AT_1X=$((RETRY_COUNT_AT_1X + 1))
-                        if [ $RETRY_COUNT_AT_1X -ge 3 ]; then
-                          echo "[Track $TRACK_NUM] WARNING: Failed 3 times at 1x speed, skipping"
-                          echo "TRACK_${TRACK_NUM}=FAILED_MAX_RETRIES" >> "$RIP_STATE"
-                          SUCCESS=true
-                          break
-                        else
-                          echo "[Track $TRACK_NUM] Retrying at 1x speed (attempt $((RETRY_COUNT_AT_1X + 1))/3)..."
-                        fi
-                      else
-                        # Try half speed
-                        CURRENT_SPEED=$((CURRENT_SPEED / 2))
-                        if [ $CURRENT_SPEED -lt 1 ]; then
-                          CURRENT_SPEED=1
-                        fi
-                        echo "[Track $TRACK_NUM] Retrying at ${CURRENT_SPEED}x speed..."
-                      fi
-                    else
-                      # Success - rename to proper track number
-                      if [ -f cdda.wav ]; then
-                        FILE_SIZE=$(stat -c%s cdda.wav 2>/dev/null || echo "unknown")
-                        mv cdda.wav "track$(printf '%02d' $TRACK_NUM).cdda.wav" || {
-                          echo "[Track $TRACK_NUM] WARNING: Failed to rename output file"
-                          SUCCESS=true  # Mark as handled to continue
-                          break
-                        }
-                        echo "[Track $TRACK_NUM] ✓ Successfully ripped (${FILE_SIZE} bytes)"
-                        echo "TRACK_${TRACK_NUM}=SUCCESS" >> "$RIP_STATE"
-                        SUCCESS=true
-                      else
-                        echo "[Track $TRACK_NUM] WARNING: No output file after rip, skipping"
-                        echo "TRACK_${TRACK_NUM}=NO_OUTPUT" >> "$RIP_STATE"
-                        # Mark as 'handled' to exit retry loop and continue to next track
-                        SUCCESS=true
-                        break
-                      fi
-                    fi
-                  done
-                  
-                  # Move to next track regardless of success/failure
-                  echo "[Track $TRACK_NUM] Completed - moving to track $((TRACK_NUM + 1))"
-                  TRACK_NUM=$((TRACK_NUM + 1))
-                done
-                
-                # Mark rip phase as complete IMMEDIATELY (before encoding to prevent restarts)
-                echo "RIP_PHASE_COMPLETED=YES" >> "$RIP_STATE" || true
-                echo "TIMESTAMP_RIP_COMPLETE=$(date +%s)" >> "$RIP_STATE" || true
-                
-                echo "========================================"
-                echo "All tracks ripped, starting FLAC encoding phase..."
-                echo "========================================"
-                echo "ENCODING_PHASE=STARTED" >> "$RIP_STATE" || true
-                
-                # Get track names from MusicBrainz and encode
-                TRACK_NUM=1
-                for wav in track*.cdda.wav; do
-                    if [ -f "$wav" ]; then
-                      echo "[Encode] Processing $wav..."
-                      # Get track title from metadata if available
-                      if [ -n "$METADATA" ]; then
-                        TRACK_TITLE=$(echo "$METADATA" | jq -r ".releases[0].media[0].tracks[$((TRACK_NUM-1))].recording.title" 2>/dev/null)
-                        if [ "$TRACK_TITLE" = "null" ] || [ -z "$TRACK_TITLE" ]; then
-                          TRACK_TITLE="Track $TRACK_NUM"
-                        fi
-                      else
-                        TRACK_TITLE="Track $TRACK_NUM"
-                      fi
-                      
-                      # Convert to FLAC and tag
-                      FLAC_FILE="${wav%.wav}.flac"
-                      if flac --best -o "$FLAC_FILE" "$wav" 2>&1 || [ -f "$FLAC_FILE" ]; then
-                        # Add metadata tags (continue even if tagging fails)
-                        metaflac --remove-all-tags "$FLAC_FILE" 2>/dev/null || true
-                        [ -n "$ARTIST" ] && metaflac --set-tag="ARTIST=$ARTIST" "$FLAC_FILE" 2>/dev/null || true
-                        [ -n "$ALBUM" ] && metaflac --set-tag="ALBUM=$ALBUM" "$FLAC_FILE" 2>/dev/null || true
-                        [ -n "$YEAR" ] && metaflac --set-tag="DATE=$YEAR" "$FLAC_FILE" 2>/dev/null || true
-                        metaflac --set-tag="TITLE=$TRACK_TITLE" "$FLAC_FILE" 2>/dev/null || true
-                        metaflac --set-tag="TRACKNUMBER=$TRACK_NUM" "$FLAC_FILE" 2>/dev/null || true
-                        
-                        # Rename file with track info
-                        SAFE_TITLE=$(echo "$TRACK_TITLE" | tr -cd '[:alnum:] ._-' | sed 's/  */ /g' | cut -c1-50)
-                        NEW_NAME=$(printf "%02d - %s.flac" $TRACK_NUM "$SAFE_TITLE")
-                        mv "$FLAC_FILE" "$NEW_NAME" 2>/dev/null || mv "$FLAC_FILE" "$(printf '%02d.flac' $TRACK_NUM)"
-                        
-                        rm -f "$wav"
-                        echo "Encoded: $NEW_NAME"
-                      else
-                        echo "Failed to encode $wav"
-                      fi
-                      TRACK_NUM=$((TRACK_NUM + 1))
-                    fi
-                  done
-                  
-                  echo "========================================"
-                  echo "Audio CD rip complete!"
-                  echo "Output: $OUTPUT_DIR/*.flac"
-                  echo "Metadata: $OUTPUT_DIR/metadata.txt"
-                  echo "========================================"
-                
-                # Mark as completed successfully FIRST (before any cleanup that could fail)
-                echo "ENCODING_PHASE=COMPLETED" >> "$RIP_STATE" || true
-                echo "FINAL_STATUS=SUCCESS" >> "$RIP_STATE" || true
-                echo "RIP_COMPLETED_NORMALLY=YES" >> "$RIP_STATE" || true
-                echo "TIMESTAMP_COMPLETE=$(date +%s)" >> "$RIP_STATE" || true
-                sync  # Ensure state file is written to disk
-                
-                # Now safe to cleanup
-                eject /dev/sr0 2>/dev/null || echo "Eject failed or already ejected"
-                rm -f "$RIP_FLAG" || true
-                echo "Rip process completed successfully - exiting background task"
-                exit 0
-              ) &
-              RIP_SUBPROCESS_PID=$!
-              echo "========================================"
-              echo "Started background rip process with PID $RIP_SUBPROCESS_PID"
-              echo "State tracking: $RIP_STATE"
-              echo "========================================"
-              fi  # End of should-we-start-rip check
-            else
-              echo "Not an audio CD or disc is empty - skipping"
-            fi
-          fi
-        fi
-        fi
-      else
-        # No disc - unmount if mounted and clear state
-        if mount | grep -q "on {{ .Values.opticalPath }}"; then
-          echo "No optical disc detected - unmounting and disabling share"
-          umount {{ .Values.opticalPath }} 2>/dev/null
-          update_share "optical" "no"
-          eject /dev/sr0 2>/dev/null
-          OPTICAL_HAD_CONNECTION=false
-          OPTICAL_IDLE_CYCLES=0
-        fi
-        # Clear rip state when disc is removed
-        RIP_STATE="/tmp/cd_rip_state"
-        if [ -f "$RIP_STATE" ]; then
-          echo "========================================"
-          echo "Disc removed - clearing rip state"
-          cat "$RIP_STATE" 2>/dev/null || echo "(state file unreadable)"
-          echo "========================================"
-          rm -f "$RIP_STATE"
-        fi
-      fi
-      
-      # Auto-unmount hotswap immediately when last connection closes (eject behavior)
-      # Monitor for active SMB connections
-      if mount | grep -q " on {{ .Values.hotswapPath }}/partition[0-9]"; then
-        if smbstatus -S 2>/dev/null | grep -q hotswap; then
-          # Active connection detected
-          HOTSWAP_HAD_CONNECTION=true
-          HOTSWAP_IDLE_CYCLES=0
-        else
-          # No active connection
-          if [ "$HOTSWAP_HAD_CONNECTION" = "true" ] && [ "$HOTSWAP_EJECTED" = "false" ]; then
-            # Had a connection before, now it's gone - unmount immediately (eject)
-            HOTSWAP_IDLE_CYCLES=$((HOTSWAP_IDLE_CYCLES + 1))
-            # Wait just 1 cycle (5 seconds) to avoid race conditions
-            if [ $HOTSWAP_IDLE_CYCLES -ge 1 ]; then
-              echo "Last SMB connection closed - ejecting hotswap drive"
-              for mount_point in {{ .Values.hotswapPath }}/partition*; do
-                if mount | grep -q " on $mount_point"; then
-                  umount "$mount_point" 2>/dev/null && echo "Unmounted $mount_point (ejected)"
-                  rmdir "$mount_point" 2>/dev/null
-                fi
-              done
-              # Clean up any remaining empty partition directories
-              for mount_point in {{ .Values.hotswapPath }}/partition*; do
-                if [ -d "$mount_point" ]; then
-                  rmdir "$mount_point" 2>/dev/null
-                fi
-              done
-              if [ "$HOTSWAP_SHARE_ENABLED" = "true" ]; then
-                echo "Disabling hotswap share (ejected - waiting for physical removal)"
-                update_share "hotswap" "no"
-                HOTSWAP_SHARE_ENABLED=false
-              fi
-              HOTSWAP_EJECTED=true
-              HOTSWAP_HAD_CONNECTION=false
-              HOTSWAP_IDLE_CYCLES=0
-            fi
-          fi
-        fi
-        # If HOTSWAP_HAD_CONNECTION=false, do nothing - keep mounted until first connection
-      else
-        HOTSWAP_HAD_CONNECTION=false
-        HOTSWAP_IDLE_CYCLES=0
-      fi
-      
-      # Auto-unmount optical ONLY after someone has connected AND then disconnected
-      # Monitor for active SMB connections
-      if mount | grep -q "on {{ .Values.opticalPath }}"; then
-        if smbstatus -S 2>/dev/null | grep -q optical; then
-          # Active connection detected
-          OPTICAL_HAD_CONNECTION=true
-          OPTICAL_IDLE_CYCLES=0
-        elif [ "$OPTICAL_HAD_CONNECTION" = "true" ]; then
-          # Had a connection before, now it's gone - start counting idle time
-          OPTICAL_IDLE_CYCLES=$((OPTICAL_IDLE_CYCLES + 1))
-          # Wait 6 cycles (30 seconds) before unmounting
-          if [ $OPTICAL_IDLE_CYCLES -ge 6 ]; then
-            echo "No active connections to optical share for 30s (after disconnect) - unmounting and ejecting"
-            umount {{ .Values.opticalPath }} 2>/dev/null && \
-              update_share "optical" "no" && \
-              eject /dev/sr0 2>/dev/null && \
-              echo "Ejected optical disc (disconnected)"
-            OPTICAL_HAD_CONNECTION=false
-            OPTICAL_IDLE_CYCLES=0
-          fi
-        fi
-        # If OPTICAL_HAD_CONNECTION=false, do nothing - keep mounted until first connection
-      else
-        OPTICAL_HAD_CONNECTION=false
-        OPTICAL_IDLE_CYCLES=0
-      fi
-      {{- end }}
-      
-      sleep 5
+      echo "Auto-mount service ready"
+      gunicorn -w 2 -b 0.0.0.0:{{ .Values.webui.port }} --timeout 120 --log-level warning webui:app
+      echo "[RESTART] Gunicorn exited, restarting in 2 seconds..."
+      sleep 2
     done
   
   webui.py: |
-    from flask import Flask, render_template_string, jsonify, request
+    from flask import Flask, render_template_string, jsonify, request, Response
     import subprocess
     import os
+    import time
+    import threading
     
     app = Flask(__name__)
     
     HOTSWAP = "{{ .Values.hotswapPath }}"
     OPTICAL = "{{ .Values.opticalPath }}"
+    
+    # Global cache for disc metadata (prevents repeated lookups)
+    _disc_metadata_cache = {}
+    _last_disc_state = {"present": False, "type": ""}
+    
+    def lookup_cd_metadata(disc_id):
+        """Lookup CD metadata from MusicBrainz, with caching"""
+        global _disc_metadata_cache
+        
+        if disc_id in _disc_metadata_cache:
+            return _disc_metadata_cache[disc_id]
+        
+        try:
+            import discid
+            import musicbrainzngs
+            import sys
+            
+            # Read disc and get MusicBrainz disc ID
+            disc = discid.read("/dev/sr0")
+            mb_disc_id = disc.id
+            
+            print(f"[METADATA] FreeDB ID: {disc_id}, MusicBrainz ID: {mb_disc_id}", file=sys.stderr, flush=True)
+            
+            musicbrainzngs.set_useragent("auto-mount-cd-ripper", "1.0", "https://github.com/billy27607/my-helm-charts")
+            
+            # Query MusicBrainz with proper disc ID
+            result = musicbrainzngs.get_releases_by_discid(mb_disc_id, includes=["artists", "artist-credits"])
+            
+            if result.get("disc") and result["disc"].get("release-list"):
+                release = result["disc"]["release-list"][0]
+                artist = release.get("artist-credit-phrase", "Unknown Artist")
+                album = release.get("title", "Unknown Album")
+                
+                print(f"[METADATA] Found: {artist} - {album}", file=sys.stderr, flush=True)
+                metadata = {"artist": artist, "album": album, "found": True}
+                _disc_metadata_cache[disc_id] = metadata
+                return metadata
+            else:
+                print("[METADATA] No releases found in MusicBrainz", file=sys.stderr, flush=True)
+        except Exception as e:
+            print(f"[METADATA] Lookup failed: {str(e)}", file=sys.stderr, flush=True)
+        
+        return {"found": False}
     
     def run_cmd(cmd):
         try:
@@ -790,29 +263,213 @@ data:
             return {"ok": False, "error": str(e)}
     
     def is_mounted(path):
+        # Check if path itself is a mountpoint
         result = subprocess.run(f"mountpoint -q {path}", shell=True)
-        return result.returncode == 0
+        if result.returncode == 0:
+            return True
+        # Check for mounted subdirectories (e.g., partition1, partition2)
+        try:
+            subdirs = [d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))]
+            for subdir in subdirs:
+                subpath = os.path.join(path, subdir)
+                result = subprocess.run(f"mountpoint -q {subpath}", shell=True)
+                if result.returncode == 0:
+                    return True
+        except:
+            pass
+        return False
     
     def get_mount_info(path):
-        if not is_mounted(path):
-            return "Not mounted"
-        # Get all mounts for this path
-        result = subprocess.run(f"mount | grep ' {path} '", shell=True, capture_output=True, text=True)
-        if result.returncode == 0 and result.stdout:
-            # Return all mount entries
-            return result.stdout.strip()
-        # Fallback to df
-        result = subprocess.run(f"df -h {path}", shell=True, capture_output=True, text=True)
-        return result.stdout
+        # Check if path itself is mounted
+        result = subprocess.run(f"mountpoint -q {path}", shell=True)
+        if result.returncode == 0:
+            result = subprocess.run(f"df -h {path}", shell=True, capture_output=True, text=True)
+            return result.stdout.strip() if result.returncode == 0 else "Mounted"
+        
+        # Check for mounted subdirectories
+        mount_info = []
+        try:
+            subdirs = [d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))]
+            for subdir in subdirs:
+                subpath = os.path.join(path, subdir)
+                result = subprocess.run(f"mountpoint -q {subpath}", shell=True)
+                if result.returncode == 0:
+                    result = subprocess.run(f"df -h {subpath}", shell=True, capture_output=True, text=True)
+                    if result.returncode == 0:
+                        mount_info.append(f"{subdir}:\n{result.stdout.strip()}")
+        except:
+            pass
+        
+        return "\n\n".join(mount_info) if mount_info else "Not mounted"
+    
+    # Track last disc state to avoid repeated logging
+    _last_disc_state = {"present": False, "type": ""}
+    _last_disc_check_time = 0
+    _mount_in_progress = {"active": False, "type": ""}
+    _eject_in_progress = False
+    
+    def detect_optical_disc():
+        """Detect if optical disc is present and determine type"""
+        import sys
+        import time
+        global _last_disc_state, _last_disc_check_time, _mount_in_progress, _eject_in_progress
+        
+        # Use cached state if checked within last 8 seconds (prevents UI blocking and excessive drive access)
+        current_time = time.time()
+        if current_time - _last_disc_check_time < 8.0 and _last_disc_state.get("info"):
+            return _last_disc_state
+        
+        # If eject is in progress, return stable "ejecting" state and skip all detection
+        if _eject_in_progress:
+            # Re-apply eject -i off to ensure it stays disabled
+            subprocess.run("eject -i off /dev/sr0 2>/dev/null", shell=True, capture_output=True)
+            return {
+                "present": False,
+                "type": "Ejecting",
+                "info": "Ejecting disc, please wait..."
+            }
+        
+        # If mount is in progress, return stable mounting state
+        if _mount_in_progress["active"]:
+            return {
+                "present": True,
+                "type": _mount_in_progress["type"],
+                "info": "Mounting in progress...",
+                "mounting": True
+            }
+        
+        if not os.path.exists("/dev/sr0"):
+            return {"present": False, "type": "No drive", "info": ""}
+        
+        # Check if disc is mounted first to avoid hammering the device
+        mount_check = subprocess.run(f"mount | grep {OPTICAL}", shell=True, capture_output=True)
+        is_mounted = mount_check.returncode == 0
+        
+        # If already mounted and we have valid cached state, return it immediately
+        if is_mounted and _last_disc_state.get("present") and _last_disc_state.get("info"):
+            # Disc is mounted and we know about it, return cached state
+            return _last_disc_state
+        
+        # Check if disc is present using blockdev (with SHORT timeout, use cache on failure)
+        try:
+            result = subprocess.run("blockdev --getsize64 /dev/sr0 2>/dev/null", shell=True, capture_output=True, text=True, timeout=2)
+        except subprocess.TimeoutExpired:
+            # blockdev timeout - disc is busy, return "Disc Busy" state or cached state
+            if _last_disc_state.get("present") and _last_disc_state.get("info"):
+                _last_disc_check_time = current_time
+                return _last_disc_state
+            # If no cached state, indicate disc is busy
+            _last_disc_check_time = current_time
+            return {"present": True, "type": "Disc Busy", "info": "Disc is busy (ripping or reading)..."}
+        
+        if result.returncode != 0 or not result.stdout.strip() or result.stdout.strip() == "0":
+            if _last_disc_state["present"]:
+                print("[DISC] Disc removed", file=sys.stderr, flush=True)
+                _last_disc_state = {"present": False, "type": "No disc"}
+            _last_disc_check_time = current_time
+            return {"present": False, "type": "No disc", "info": ""}
+        
+        # Get disc size (with short timeout, use cache on failure)
+        try:
+            size_result = subprocess.run("blockdev --getsize64 /dev/sr0 2>/dev/null", shell=True, capture_output=True, text=True, timeout=10)
+            size_bytes = int(size_result.stdout.strip()) if size_result.returncode == 0 and size_result.stdout.strip() else 0
+        except subprocess.TimeoutExpired:
+            # Use cached size if available
+            if _last_disc_state.get("size_mb"):
+                size_bytes = _last_disc_state["size_mb"] * 1024 * 1024
+            else:
+                size_bytes = 0
+        
+        size_mb = size_bytes // (1024 * 1024) if size_bytes > 0 else 0
+        
+        # Check for audio CD first using discid library (more reliable than cd-discid for DVDs)
+        try:
+            import discid
+            disc = discid.read("/dev/sr0")
+            # If we have actual audio tracks, it's an audio CD
+            if len(disc.tracks) > 0:
+                disc_id = disc.id
+                if not _last_disc_state["present"] or _last_disc_state["type"] != "Audio CD":
+                    print(f"[DISC] Audio CD inserted, ID: {disc_id}, {size_mb} MB", file=sys.stderr, flush=True)
+                    _last_disc_state = {"present": True, "type": "Audio CD"}
+                
+                # Try to get album name from MusicBrainz
+                metadata = lookup_cd_metadata(disc_id)
+                if metadata["found"]:
+                    album_info = f'"{metadata["album"]}" - {metadata["artist"]}'
+                    return {"present": True, "type": "Audio CD", "info": f"Audio CD: {album_info} ({size_mb} MB)", "size_mb": size_mb}
+                else:
+                    return {"present": True, "type": "Audio CD", "info": f"Audio CD ({size_mb} MB)", "size_mb": size_mb}
+        except Exception as e:
+            # Not an audio CD - this is expected for DVDs and data discs, so no logging needed
+            pass
+        
+        # Get disc info using blkid for data discs (with short timeout, use cache on failure)
+        try:
+            blkid_result = subprocess.run("blkid /dev/sr0 2>&1", shell=True, capture_output=True, text=True, timeout=2)
+            disc_info = blkid_result.stdout.strip()
+        except subprocess.TimeoutExpired:
+            # blkid timeout - use cached type or size to determine type
+            if _last_disc_state.get("type") and _last_disc_state["type"] not in ["No disc", "Unknown disc"]:
+                # Return cached state if we have a known disc type
+                _last_disc_check_time = current_time
+                return _last_disc_state
+            disc_info = ""
+        
+        # Determine disc type from blkid info and size
+        disc_type = "Unknown disc"
+        label = ""
+        
+        # Try to determine disc type from blkid info or size
+        if "TYPE=\"udf\"" in disc_info or size_mb > 1000:
+            # Large disc or UDF filesystem suggests DVD
+            disc_type = "Video DVD"
+            if "LABEL" in disc_info:
+                for part in disc_info.split():
+                    if part.startswith("LABEL="):
+                        label = part.split("=", 1)[1].strip('"')
+                        break
+        elif "TYPE=\"iso9660\"" in disc_info:
+            if size_mb > 800:
+                disc_type = "Data DVD"
+            else:
+                disc_type = "Data CD"
+        elif size_mb > 1000:
+            # Fallback: if blkid timed out but we have a large disc, assume DVD
+            disc_type = "Video DVD"
+        
+        info_str = f"{disc_type}"
+        if label:
+            info_str = f"{disc_type}: {label}"
+        info_str += f" ({size_mb} MB)"
+        
+        # Build complete state dict
+        disc_state = {"present": True, "type": disc_type, "info": info_str, "size_mb": size_mb}
+        
+        if not _last_disc_state.get("present") or _last_disc_state.get("type") != disc_type:
+            print(f"[DISC] {disc_type} inserted{': ' + label if label else ''}, {size_mb} MB", file=sys.stderr, flush=True)
+        
+        # Update cached state with complete info
+        _last_disc_check_time = current_time
+        _last_disc_state = disc_state
+        return disc_state
+    
     
     @app.route("/automount")
     @app.route("/automount/")
     def index():
+        from flask import Response
+        import time
+        # Add timestamp to force cache refresh
+        cache_buster = str(int(time.time()))
         html = '''
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Auto-Mount Manager</title>
+            <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+            <meta http-equiv="Pragma" content="no-cache">
+            <meta http-equiv="Expires" content="0">
+            <title>Auto-Mount Manager v110</title>
             <style>
                 body {
                     font-family: Arial, sans-serif;
@@ -869,6 +526,26 @@ data:
                     background: #f8d7da;
                     border: 1px solid #f5c6cb;
                 }
+                .disc-detected {
+                    background: #fff3cd;
+                    border: 1px solid #ffeaa7;
+                }
+                .mount-status-bar {
+                    padding: 10px;
+                    margin: 10px 0;
+                    border-radius: 4px;
+                    font-weight: 500;
+                }
+                .status-mounted {
+                    background: #d4edda;
+                    color: #155724;
+                    border-left: 4px solid #28a745;
+                }
+                .status-unmounted {
+                    background: #f8d7da;
+                    color: #721c24;
+                    border-left: 4px solid #dc3545;
+                }
                 .output {
                     background: #e9ecef;
                     padding: 10px;
@@ -876,8 +553,9 @@ data:
                     border-radius: 4px;
                     font-family: monospace;
                     font-size: 12px;
-                    max-height: 200px;
+                    max-height: 400px;
                     overflow-y: auto;
+                    white-space: pre-wrap;
                 }
             </style>
         </head>
@@ -886,79 +564,295 @@ data:
             
             <div class="card">
                 <h2>💾 Hot-Swap Drive</h2>
-                <div id="hotswap-status" class="status">Loading...</div>
-                <button onclick="unmount('hotswap')">Unmount Hot-Swap</button>
-                <button onclick="refresh()">Refresh Status</button>
+                <div id="hotswap-status-bar"></div>
+                <button onclick="mount('hotswap', this)">Mount Hot-Swap</button>
+                <button onclick="unmount('hotswap', this)">Unmount Hot-Swap</button>
+                <button onclick="refresh(this)">Refresh Status</button>
             </div>
             
             <div class="card">
                 <h2>💿 Optical Drive</h2>
-                <div id="optical-status" class="status">Loading...</div>
-                <button onclick="unmount('optical')">Unmount Optical</button>
-                <button onclick="eject()">Eject Disc</button>
+                <div id="optical-status-bar"></div>
+                <div id="optical-buttons">
+                    <button onclick="mount('optical')">Mount Optical</button>
+                    <button onclick="unmount('optical')">Unmount Optical</button>
+                    <button onclick="eject()">Eject Disc</button>
+                </div>
             </div>
             
-            <div class="card">
-                <h2>📝 Output</h2>
-                <div id="output" class="output">Ready</div>
+            <div class="card" id="rip-status-card" style="display:none;">
+                <h2>🎵 Rip Status</h2>
+                <div id="rip-status" class="output">No active rips</div>
             </div>
             
             <script>
-                function showOutput(msg) {
-                    document.getElementById('output').innerText = msg;
+                function refresh(btn) {
+                    if (btn) {
+                        btn.disabled = true;
+                        btn.style.backgroundColor = '#555';
+                        const originalText = btn.textContent;
+                        btn.textContent = 'Scanning...';
+                    }
+                    
+                    // First trigger a scan to detect disc
+                    fetch('/automount/scan', { method: 'POST' })
+                        .then(r => r.json())
+                        .then(() => {
+                            // Then get status
+                            console.log('Refreshing status...');
+                            return fetch('/automount/status');
+                        })
+                        .then(r => {
+                            console.log('Status response:', r.status);
+                            return r.json();
+                        })
+                        .then(data => {
+                            console.log('Status data:', data);
+                            const hsBar = document.getElementById('hotswap-status-bar');
+                            const optBar = document.getElementById('optical-status-bar');
+                            const optButtons = document.getElementById('optical-buttons');
+                            
+                            if (!hsBar || !optBar || !optButtons) {
+                                console.error('Elements not found!', {hsBar, optBar, optButtons});
+                                return;
+                            }
+                            
+                            // Hot-swap status bar
+                            if (data.hotswap.mounted) {
+                                hsBar.className = 'mount-status-bar status-mounted';
+                                hsBar.innerText = '✓ Mounted | ' + data.hotswap.info;
+                            } else {
+                                hsBar.className = 'mount-status-bar status-unmounted';
+                                hsBar.innerText = '✗ Not mounted | ' + data.hotswap.info;
+                            }
+                            
+                            // Optical status bar
+                            const discType = data.optical.disc_type || 'No disc';
+                            if (data.optical.disc_present) {
+                                if (data.optical.mounted) {
+                                    optBar.className = 'mount-status-bar status-mounted';
+                                    optBar.innerText = '✓ Mounted | ' + discType + ' | ' + data.optical.info.replace(/\\n/g, ' | ');
+                                } else {
+                                    optBar.className = 'mount-status-bar status-unmounted';
+                                    optBar.innerText = '✗ Not mounted | ' + discType + ' | ' + data.optical.info.replace(/\\n/g, ' | ');
+                                }
+                            } else {
+                                optBar.className = 'mount-status-bar status-unmounted';
+                                optBar.innerText = '✗ No disc inserted';
+                            }
+                            
+                            // Update buttons based on disc type
+                            // Check for Ejecting state first (takes priority)
+                            if (discType === 'Ejecting') {
+                                // Show Close & Detect button during eject
+                                optButtons.innerHTML = '<button onclick="closeAndDetect(this)">Close & Detect</button>';
+                            } else if (discType === 'Audio CD') {
+                                // Show rip/eject buttons for audio CD
+                                optButtons.innerHTML = '<button onclick="rip(\\'audio\\', this)">Rip to ALAC</button><button onclick="eject(this)">Eject Disc</button>';
+                            } else if (discType === 'Video DVD') {
+                                // Show two rip options for video DVD
+                                optButtons.innerHTML = '<button onclick="rip(\\'mkv\\', this)">Rip to M4V (Apple)</button><button onclick="rip(\\'iso\\', this)">Rip to ISO</button><button onclick="eject(this)">Eject Disc</button>';
+                            } else if (data.optical.disc_present) {
+                                // Show mount/unmount/eject for other disc types
+                                optButtons.innerHTML = '<button onclick="mount(\\'optical\\', this)">Mount</button><button onclick="unmount(\\'optical\\', this)">Unmount</button><button onclick="eject(this)">Eject</button>';
+                            } else {
+                                // No disc - show default buttons
+                                optButtons.innerHTML = '<button onclick="mount(\\'optical\\', this)">Mount</button><button onclick="unmount(\\'optical\\', this)">Unmount</button><button onclick="eject(this)">Eject</button>';
+                            }
+                            
+                            // Re-enable refresh button
+                            if (btn) {
+                                btn.disabled = false;
+                                btn.style.backgroundColor = '';
+                                btn.textContent = 'Refresh Status';
+                            }
+                        })
+                        .catch(err => {
+                            console.error('Error:', err);
+                            if (btn) {
+                                btn.disabled = false;
+                                btn.style.backgroundColor = '';
+                                btn.textContent = 'Refresh Status';
+                            }
+                        });
                 }
                 
-                function refresh() {
-                    fetch('/automount/status')
+                function mount(type, btn) {
+                    if (btn) {
+                        btn.disabled = true;
+                        btn.style.backgroundColor = '#555';
+                        btn.textContent += ' ...';
+                    }
+                    fetch('/automount/mount/' + type, {method: 'POST'})
                         .then(r => r.json())
                         .then(data => {
-                            const hs = document.getElementById('hotswap-status');
-                            const opt = document.getElementById('optical-status');
-                            
-                            hs.innerText = data.hotswap.info;
-                            hs.className = 'status ' + (data.hotswap.mounted ? 'mounted' : 'unmounted');
-                            
-                            opt.innerText = data.optical.info;
-                            opt.className = 'status ' + (data.optical.mounted ? 'mounted' : 'unmounted');
-                            
-                            showOutput('Status refreshed at ' + new Date().toLocaleTimeString());
+                            setTimeout(refresh, 1000);
                         })
-                        .catch(err => showOutput('Error: ' + err));
+                        .catch(err => console.error('Error:', err));
                 }
                 
-                function unmount(type) {
-                    showOutput('Unmounting ' + type + '...');
+                function unmount(type, btn) {
+                    if (btn) {
+                        btn.disabled = true;
+                        btn.style.backgroundColor = '#555';
+                        btn.textContent += ' ...';
+                    }
                     fetch('/automount/unmount/' + type, {method: 'POST'})
                         .then(r => r.json())
                         .then(data => {
-                            showOutput(data.ok ? data.output : 'Error: ' + data.error);
                             refresh();
                         })
-                        .catch(err => showOutput('Error: ' + err));
+                        .catch(err => console.error('Error:', err));
                 }
                 
-                function eject() {
-                    showOutput('Ejecting optical disc...');
+                function eject(btn) {
+                    if (btn) {
+                        btn.disabled = true;
+                        btn.style.backgroundColor = '#555';
+                        btn.textContent += ' ...';
+                    }
                     fetch('/automount/eject', {method: 'POST'})
                         .then(r => r.json())
                         .then(data => {
-                            showOutput(data.ok ? data.output : 'Error: ' + data.error);
                             setTimeout(refresh, 2000);
                         })
-                        .catch(err => showOutput('Error: ' + err));
+                        .catch(err => console.error('Error:', err));
                 }
                 
-                // Auto-refresh every 10 seconds
-                setInterval(refresh, 10000);
-                refresh();
+                function closeAndDetect(btn) {
+                    if (btn) {
+                        btn.disabled = true;
+                        btn.style.backgroundColor = '#555';
+                        btn.textContent += ' ...';
+                    }
+                    fetch('/automount/close-detect', {method: 'POST'})
+                        .then(r => r.json())
+                        .then(data => {
+                            setTimeout(refresh, 1000);
+                        })
+                        .catch(err => console.error('Error:', err));
+                }
+                
+                function rip(format, btn) {
+                    // Visual feedback: disable button and show working state
+                    if (btn) {
+                        btn.disabled = true;
+                        btn.style.backgroundColor = '#555';
+                        btn.textContent += ' ...';
+                    }
+                    
+                    const body = format ? JSON.stringify({format: format}) : '{}';
+                    fetch('/automount/rip', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: body
+                    })
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data.ok) {
+                                alert('Rip started! Check the Rip Status section below for progress.\\n\\n' + data.output);
+                                document.getElementById('rip-status-card').style.display = 'block';
+                                checkRipStatus();
+                            } else {
+                                alert('Rip failed: ' + (data.error || 'Unknown error'));
+                            }
+                            setTimeout(refresh, 1000);
+                        })
+                        .catch(err => {
+                            console.error('Error:', err);
+                            alert('Error starting rip: ' + err);
+                        });
+                }
+                
+                function cancelRip(ripName) {
+                    if (!confirm('Cancel rip for ' + ripName + '? This will stop the process and delete incomplete files.')) {
+                        return;
+                    }
+                    fetch('/automount/rip/cancel', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({name: ripName})
+                    })
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data.ok) {
+                                alert('Rip cancelled: ' + data.message);
+                                checkRipStatus();
+                                setTimeout(refresh, 1000);
+                            } else {
+                                alert('Failed to cancel: ' + (data.error || 'Unknown error'));
+                            }
+                        })
+                        .catch(err => {
+                            console.error('Error:', err);
+                            alert('Error cancelling rip: ' + err);
+                        });
+                }
+                
+                function checkRipStatus() {
+                    fetch('/automount/rip/status')
+                        .then(r => r.json())
+                        .then(data => {
+                            // Only show if there are active rips
+                            const hasInProgress = data.ok && data.rips && data.rips.some(r => r.status && r.status.startsWith('IN_PROGRESS'));
+                            
+                            if (hasInProgress) {
+                                document.getElementById('rip-status-card').style.display = 'block';
+                                let statusHtml = '';
+                                // Only show logs for IN_PROGRESS rips (with cancel button)
+                                data.rips.filter(r => r.status && r.status.startsWith('IN_PROGRESS')).forEach(rip => {
+                                    statusHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
+                                    statusHtml += '<div><strong>' + rip.dir + '</strong>: ' + rip.status + '</div>';
+                                    statusHtml += '<button onclick="cancelRip(\\'' + rip.dir + '\\')" style="background:#dc3545;padding:5px 10px;">Cancel</button>';
+                                    statusHtml += '</div>';
+                                    if (rip.log) {
+                                        statusHtml += '<pre style="margin:0 0 15px 0;">' + rip.log + '</pre>';
+                                    }
+                                });
+                                const ripStatusElement = document.getElementById('rip-status');
+                                ripStatusElement.innerHTML = statusHtml;
+                                // Auto-scroll to bottom to show latest progress
+                                ripStatusElement.scrollTop = ripStatusElement.scrollHeight;
+                            } else {
+                                // Hide rip status when nothing is ripping
+                                document.getElementById('rip-status-card').style.display = 'none';
+                            }
+                        })
+                        .catch(err => console.error('Error checking rip status:', err));
+                }
+                
+                // Manual refresh only - NO automatic polling
+                refresh();  // Initial load
+                
+                // Check for active rips on load and every 5 seconds (only for rip progress)
+                checkRipStatus();
+                setInterval(checkRipStatus, 5000);
             </script>
         </body>
         </html>
         '''
-        return render_template_string(html)
+        response = Response(render_template_string(html))
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
     
     @app.route("/automount/status")
     def status():
+        # Only return cached disc state - do NOT trigger new detection
+        # Use global cached state to avoid hitting the drive
+        global _last_disc_state
+        
+        # Return cached disc state or default "unknown" state
+        optical_disc = _last_disc_state if _last_disc_state.get("present") is not None else {"present": False, "type": "Unknown", "info": "Click 'Refresh Status' to detect disc"}
+        optical_info = get_mount_info(OPTICAL)
+        
+        # If disc is present but not mounted, show disc info
+        if optical_disc["present"] and optical_info == "Not mounted":
+            optical_info = f"Disc detected: {optical_disc['info']}\nNot mounted"
+        elif optical_disc["present"] and optical_info != "Not mounted":
+            optical_info = f"Disc detected: {optical_disc['info']}\n\n{optical_info}"
+        
         return jsonify({
             "hotswap": {
                 "mounted": is_mounted(HOTSWAP),
@@ -966,20 +860,613 @@ data:
             },
             "optical": {
                 "mounted": is_mounted(OPTICAL),
-                "info": get_mount_info(OPTICAL)
+                "disc_present": optical_disc["present"],
+                "disc_type": optical_disc["type"],
+                "info": optical_info
             }
         })
+    
+    @app.route("/automount/scan", methods=["POST"])
+    def scan():
+        """Manually trigger disc detection (called when user clicks Refresh)"""
+        # Force a fresh disc detection
+        optical_disc = detect_optical_disc()
+        return jsonify({"ok": True, "disc": optical_disc})
+    
+    @app.route("/automount/mount/<drive>", methods=["POST"])
+    def mount(drive):
+        """Mount hotswap or optical drive"""
+        path = HOTSWAP if drive == "hotswap" else OPTICAL
+        
+        if drive == "hotswap":
+            # Find and mount all partitions from hotswap port
+            hotswap_port = "{{ .Values.hotswapDevice }}.0"
+            mount_results = []
+            
+            # Clean up old partition directories
+            try:
+                result = subprocess.run(f"ls {path}/partition* 2>/dev/null", shell=True, capture_output=True, text=True)
+                if result.returncode == 0:
+                    for old_dir in result.stdout.strip().split('\n'):
+                        if old_dir:
+                            # Check if mounted
+                            check = subprocess.run(f"mountpoint -q {old_dir}", shell=True)
+                            if check.returncode != 0:
+                                subprocess.run(f"rmdir {old_dir} 2>/dev/null", shell=True)
+            except:
+                pass
+            
+            # Find and mount all partitions
+            result = subprocess.run(f"ls {hotswap_port}-part* 2>/dev/null", shell=True, capture_output=True, text=True)
+            if result.returncode == 0:
+                partitions = result.stdout.strip().split('\n')
+                for partition in partitions:
+                    if partition and os.path.exists(partition):
+                        # Extract partition number
+                        part_num = partition.split('-part')[-1]
+                        mount_point = f"{path}/partition{part_num}"
+                        
+                        # Create mount point
+                        os.makedirs(mount_point, exist_ok=True)
+                        
+                        # Mount if not already mounted
+                        check = subprocess.run(f"mountpoint -q {mount_point}", shell=True)
+                        if check.returncode != 0:
+                            result = run_cmd(f"mount {partition} {mount_point}")
+                            mount_results.append(f"partition{part_num}: {result.get('output', result.get('error', 'unknown'))}")
+                        else:
+                            mount_results.append(f"partition{part_num}: already mounted")
+                
+                if mount_results:
+                    # Enable share
+                    run_cmd("sed -i '/\\[hotswap\\]/,/^$/{{ `{{` }}s/available = no/available = yes/{{ `}}` }}' /etc/samba/smb.conf && smbcontrol all reload-config")
+                    return jsonify({"ok": True, "output": "\n".join(mount_results)})
+                else:
+                    return jsonify({"ok": False, "error": "No partitions found"})
+            else:
+                return jsonify({"ok": False, "error": "No hotswap device detected"})
+        
+        elif drive == "optical":
+            # Set mount in progress flag
+            global _mount_in_progress
+            _mount_in_progress["active"] = True
+            _mount_in_progress["type"] = "Video DVD"  # Will be updated by detection
+            
+            # Try to mount optical disc
+            result = run_cmd(f"mount -t udf,iso9660 -o ro /dev/sr0 {path}")
+            if result["ok"]:
+                # Enable share
+                run_cmd("sed -i '/\\[optical\\]/,/^$/{{ `{{` }}s/available = no/available = yes/{{ `}}` }}' /etc/samba/smb.conf && smbcontrol all reload-config")
+            
+            # Clear mount in progress after 3 seconds to allow mount to complete
+            import threading
+            threading.Timer(3.0, lambda: _mount_in_progress.update({"active": False, "type": ""})).start()
+            
+            return jsonify(result)
+        
+        return jsonify({"ok": False, "error": "Invalid drive"})
     
     @app.route("/automount/unmount/<drive>", methods=["POST"])
     def unmount(drive):
         path = HOTSWAP if drive == "hotswap" else OPTICAL
-        return jsonify(run_cmd(f"umount {path}"))
+        
+        # Check if path itself is mounted and unmount it
+        result = subprocess.run(f"mountpoint -q {path}", shell=True)
+        if result.returncode == 0:
+            return jsonify(run_cmd(f"umount {path}"))
+        
+        # Find and unmount all mounted subdirectories
+        unmount_results = []
+        try:
+            subdirs = [d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))]
+            for subdir in subdirs:
+                subpath = os.path.join(path, subdir)
+                result = subprocess.run(f"mountpoint -q {subpath}", shell=True)
+                if result.returncode == 0:
+                    result = run_cmd(f"umount {subpath}")
+                    unmount_results.append(f"{subdir}: {result.get('output', result.get('error', 'unknown'))}")
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)})
+        
+        if unmount_results:
+            # Disable share
+            share_name = "hotswap" if drive == "hotswap" else "optical"
+            run_cmd(f"sed -i '/\\[{share_name}\\]/,/^$/{{ `{{` }}s/available = yes/available = no/{{ `}}` }}' /etc/samba/smb.conf && smbcontrol all reload-config")
+            return jsonify({"ok": True, "output": "\n".join(unmount_results)})
+        else:
+            return jsonify({"ok": False, "error": "No mounted filesystems found"})
+    
+    @app.route("/automount/rip/status")
+    def rip_status():
+        """Get status of any active rip operations (Audio CDs and DVD ISOs)"""
+        rip_items = []
+        try:
+            if os.path.exists("/raid5/cd-rips"):
+                for item in os.listdir("/raid5/cd-rips"):
+                    item_path = os.path.join("/raid5/cd-rips", item)
+                    
+                    # Check for audio CD directories
+                    if os.path.isdir(item_path) and (item.startswith("AudioCD_") or " - " in item):
+                        status_file = os.path.join(item_path, "status.txt")
+                        log_file = os.path.join(item_path, "rip.log")
+                        
+                        status = "UNKNOWN"
+                        if os.path.exists(status_file):
+                            with open(status_file, 'r') as f:
+                                status = f.read().strip()
+                        
+                        log_tail = ""
+                        if os.path.exists(log_file):
+                            result = subprocess.run(f"tail -100 \"{log_file}\"", shell=True, capture_output=True, text=True)
+                            log_tail = result.stdout
+                        
+                        rip_items.append({
+                            "dir": item,
+                            "status": status,
+                            "log": log_tail
+                        })
+                    
+                    # Check for DVD ISO, MKV, and M4V files
+                    elif (item.endswith(".iso") or item.endswith(".mkv") or item.endswith(".m4v")) and item.startswith("DVD_"):
+                        file_path = item_path
+                        log_path = item_path.replace(".iso", ".log").replace(".mkv", ".log").replace(".m4v", ".log")
+                        if item.endswith(".iso"):
+                            file_type = "ISO"
+                        elif item.endswith(".m4v"):
+                            file_type = "M4V"
+                        else:
+                            file_type = "MKV"
+                        
+                        # Check if process is still running (dd for ISO, HandBrakeCLI for MKV/M4V)
+                        if file_type == "ISO":
+                            ps_cmd = f"ps aux | grep 'dd if=/dev/sr0 of={file_path}' | grep -v grep"
+                        else:
+                            ps_cmd = f"ps aux | grep 'HandBrakeCLI.*{item}' | grep -v grep"
+                        
+                        ps_result = subprocess.run(ps_cmd, shell=True, capture_output=True, text=True)
+                        is_running = len(ps_result.stdout.strip()) > 0
+                        
+                        # Get current file size
+                        if os.path.exists(file_path):
+                            current_size = os.path.getsize(file_path)
+                            current_mb = current_size // (1024 * 1024)
+                            
+                            if file_type == "ISO":
+                                # For ISO, compare to disc size (use cached state to avoid disc queries)
+                                global _last_disc_state
+                                expected_mb = _last_disc_state.get("size_mb", 0) if _last_disc_state.get("present") else 0
+                                
+                                if expected_mb > 0:
+                                    percent = int((current_mb / expected_mb) * 100)
+                                    status = f"IN_PROGRESS - {percent}% ({current_mb} MB / {expected_mb} MB)"
+                                else:
+                                    status = f"IN_PROGRESS - {current_mb} MB written"
+                                
+                                if not is_running:
+                                    if expected_mb > 0 and current_mb >= expected_mb * 0.95:
+                                        status = "COMPLETE"
+                                    else:
+                                        status = f"INCOMPLETE - stopped at {current_mb} MB"
+                            else:
+                                # For MKV/M4V, we can't easily predict size, just show current
+                                if is_running:
+                                    status = f"IN_PROGRESS - {current_mb} MB transcoded"
+                                else:
+                                    status = f"COMPLETE - {current_mb} MB"
+                        else:
+                            status = "STARTING" if is_running else "FAILED - no file created"
+                        
+                        # Read log tail
+                        log_tail = ""
+                        if os.path.exists(log_path):
+                            result = subprocess.run(f"tail -20 \"{log_path}\"", shell=True, capture_output=True, text=True)
+                            log_tail = result.stdout
+                        
+                        rip_items.append({
+                            "dir": item,
+                            "status": status,
+                            "log": log_tail if log_tail else f"DVD {file_type} rip in progress..."
+                        })
+                    
+                    # Check for standalone .log files (rip in progress, output file not created yet)
+                    elif item.endswith(".log") and item.startswith("DVD_"):
+                        log_path = item_path
+                        # Check if corresponding .mkv, .iso, or .m4v exists
+                        mkv_path = log_path.replace(".log", ".mkv")
+                        iso_path = log_path.replace(".log", ".iso")
+                        m4v_path = log_path.replace(".log", ".m4v")
+                        if not os.path.exists(mkv_path) and not os.path.exists(iso_path) and not os.path.exists(m4v_path):
+                            # Check if process is actually running
+                            ps_result = subprocess.run("ps aux | grep -E 'HandBrakeCLI|dd if=/dev/sr0' | grep -v grep", shell=True, capture_output=True, text=True)
+                            if len(ps_result.stdout.strip()) > 0:
+                                # Log file exists but no output file AND process is running - rip is starting/scanning
+                                log_tail = ""
+                                if os.path.exists(log_path):
+                                    result = subprocess.run(f"tail -20 \"{log_path}\"", shell=True, capture_output=True, text=True)
+                                    log_tail = result.stdout
+                                
+                                rip_items.append({
+                                    "dir": item.replace(".log", ""),
+                                    "status": "IN_PROGRESS - scanning disc",
+                                    "log": log_tail if log_tail else "Starting..."
+                                })
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)})
+        
+        return jsonify({"ok": True, "rips": rip_items})
     
     @app.route("/automount/eject", methods=["POST"])
     def eject_disc():
-        # Unmount first, then eject
-        run_cmd(f"umount {OPTICAL}")
-        return jsonify(run_cmd("eject /dev/sr0"))
+        import time
+        import threading
+        global _last_disc_state, _eject_in_progress
+        
+        # Set eject in progress flag to pause disc detection FIRST
+        _eject_in_progress = True
+        
+        # Wait a moment for any in-progress detection to finish
+        time.sleep(1)
+        
+        # Force unmount everything under optical mount point
+        try:
+            # First try to unmount any subdirectories
+            subprocess.run(f"umount {OPTICAL}/* 2>/dev/null || true", shell=True, timeout=5)
+            # Then unmount the main mount point (with force)
+            subprocess.run(f"umount -f {OPTICAL} 2>/dev/null || true", shell=True, timeout=5)
+            # Also force unmount /dev/sr0 if mounted elsewhere
+            subprocess.run("umount -f /dev/sr0 2>/dev/null || true", shell=True, timeout=5)
+        except:
+            pass
+        
+        # Disable auto-close mechanism
+        subprocess.run("eject -i off /dev/sr0 2>/dev/null", shell=True, capture_output=True)
+        
+        # Try eject with retries (up to 3 attempts with 2s between)
+        eject_success = False
+        for attempt in range(3):
+            try:
+                result = subprocess.run("eject /dev/sr0", shell=True, capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    eject_success = True
+                    break
+                time.sleep(2)
+            except subprocess.TimeoutExpired:
+                time.sleep(2)
+        
+        # Clear cached disc state immediately after eject
+        _last_disc_state = {"present": False, "type": "No disc"}
+        
+        # Keep eject flag active until user clicks "Close & Detect"
+        # No background thread - user controls when to resume detection
+        
+        if eject_success:
+            return jsonify({"ok": True, "output": "Tray ejected - click 'Close & Detect' after closing tray"})
+        else:
+            return jsonify({"ok": False, "error": "Eject failed after 3 attempts"})
     
-    if __name__ == "__main__":
-        app.run(host="0.0.0.0", port={{ .Values.webui.port }})
+    @app.route("/automount/close-detect", methods=["POST"])
+    def close_and_detect():
+        """Clear eject flag and trigger immediate disc detection"""
+        global _eject_in_progress
+        _eject_in_progress = False
+        
+        # Give the tray a moment to settle
+        time.sleep(1)
+        
+        # Trigger immediate detection
+        disc_info = detect_optical_disc()
+        
+        return jsonify({"ok": True, "disc": disc_info})
+    
+    @app.route("/automount/rip", methods=["POST"])
+    def rip_disc():
+        """Rip audio CD or video DVD"""
+        import sys
+        
+        # Detect disc type
+        disc_info = detect_optical_disc()
+        if not disc_info["present"]:
+            return jsonify({"ok": False, "error": "No disc detected"})
+        
+        disc_type = disc_info["type"]
+        print(f"[RIP] Starting rip for {disc_type}", file=sys.stderr, flush=True)
+        
+        if disc_type == "Audio CD":
+            # Get MusicBrainz disc ID
+            try:
+                import discid
+                disc = discid.read("/dev/sr0")
+                mb_disc_id = disc.id
+                num_tracks = len(disc.tracks)
+                print(f"[RIP] MusicBrainz Disc ID: {mb_disc_id}, Tracks: {num_tracks}", file=sys.stderr, flush=True)
+            except Exception as e:
+                print(f"[RIP] Failed to read disc ID: {str(e)}", file=sys.stderr, flush=True)
+                return jsonify({"ok": False, "error": f"Failed to read disc: {str(e)}"})
+                
+            # Lookup metadata from MusicBrainz
+            print(f"[RIP] Looking up metadata for disc ID: {mb_disc_id}", file=sys.stderr, flush=True)
+            import musicbrainzngs
+            musicbrainzngs.set_useragent("auto-mount-cd-ripper", "1.0", "https://github.com/billy27607/my-helm-charts")
+            
+            metadata = {"found": False}
+            try:
+                # Try direct disc ID lookup first
+                result = musicbrainzngs.get_releases_by_discid(mb_disc_id, includes=["artists", "recordings", "artist-credits"])
+                if result.get("disc") and result["disc"].get("release-list"):
+                    release = result["disc"]["release-list"][0]
+                    artist = release["artist-credit-phrase"] if "artist-credit-phrase" in release else "Unknown Artist"
+                    album = release["title"] if "title" in release else "Unknown Album"
+                    year = release["date"][:4] if "date" in release and release["date"] else ""
+                    
+                    tracks = []
+                    if "medium-list" in release:
+                        for medium in release["medium-list"]:
+                            if "disc-list" in medium:
+                                for disc in medium["disc-list"]:
+                                    if disc.get("id") == mb_disc_id and "track-list" in medium:
+                                        for track in medium["track-list"]:
+                                            track_num = track.get("position", "")
+                                            track_title = track.get("recording", {}).get("title", f"Track {track_num}")
+                                            tracks.append({"num": track_num, "title": track_title})
+                                        break
+                    
+                    metadata = {
+                        "found": True,
+                        "artist": artist,
+                        "album": album,
+                        "year": year,
+                        "tracks": tracks
+                    }
+                    print(f"[RIP] Found: {artist} - {album} ({year})", file=sys.stderr, flush=True)
+            except Exception as e:
+                print(f"[RIP] Metadata lookup failed: {str(e)}", file=sys.stderr, flush=True)
+            
+            # Create output directory with metadata if available
+            if metadata["found"]:
+                safe_artist = metadata["artist"].replace("/", "-").replace("\\", "-")[:50]
+                safe_album = metadata["album"].replace("/", "-").replace("\\", "-")[:50]
+                year_str = f" ({metadata['year']})" if metadata["year"] else ""
+                output_dir = f"/raid5/cd-rips/{safe_artist} - {safe_album}{year_str}"
+            else:
+                timestamp = subprocess.run("date +%Y%m%d_%H%M%S", shell=True, capture_output=True, text=True).stdout.strip()
+                output_dir = f"/raid5/cd-rips/AudioCD_{timestamp}"
+            
+            # Create output directory
+            os.makedirs(output_dir, exist_ok=True)
+            print("[RIP] Created output directory: " + output_dir, file=sys.stderr, flush=True)
+            
+            # Save metadata to JSON file
+            if metadata["found"]:
+                import json
+                with open(output_dir + "/metadata.json", 'w') as f:
+                    json.dump(metadata, f, indent=2)
+            
+            # Create rip script
+            script_path = output_dir + "/rip.sh"
+            with open(script_path, 'w') as f:
+                f.write("#!/bin/sh\n")
+                f.write("set -e\n")
+                f.write(f"cd \"{output_dir}\"\n")
+                f.write("echo 'IN_PROGRESS' > status.txt\n")
+                f.write("echo '[RIP] Starting cdparanoia rip at 40x speed...' | tee -a rip.log\n")
+                f.write("cdparanoia -B -S 40 -d /dev/sr0 2>&1 | tee -a rip.log\n")
+                f.write("echo '[RIP] Converting WAV to ALAC...' | tee -a rip.log\n")
+                
+                # If metadata found, tag each file
+                if metadata["found"]:
+                    f.write("# Tag ALAC files with metadata\n")
+                    for i, track in enumerate(metadata["tracks"], 1):
+                        track_num = str(i).zfill(2)
+                        safe_title = track["title"].replace("/", "-").replace("\\", "-").replace('"', "'").replace("'", "'\\''")
+                        f.write(f"if [ -f track{track_num}.cdda.wav ]; then\n")
+                        f.write(f"  echo '[RIP] Converting Track {i}: {safe_title}' | tee -a rip.log\n")
+                        f.write(f"  ffmpeg -i track{track_num}.cdda.wav -acodec alac \\\n")
+                        f.write(f"    -metadata artist=\"{metadata['artist']}\" \\\n")
+                        f.write(f"    -metadata album=\"{metadata['album']}\" \\\n")
+                        f.write(f"    -metadata title=\"{safe_title}\" \\\n")
+                        f.write(f"    -metadata track={i}")
+                        if metadata["year"]:
+                            f.write(f" \\\n    -metadata date={metadata['year']}")
+                        f.write(f" \\\n    \"{i:02d} - {safe_title}.m4a\" 2>&1 | tee -a rip.log\n")
+                        f.write(f"  rm track{track_num}.cdda.wav\n")
+                        f.write("fi\n")
+                else:
+                    # No metadata - generic conversion
+                    f.write("for wav in *.wav; do\n")
+                    f.write('  if [ -f "$wav" ]; then\n')
+                    f.write("    echo \"[RIP] Converting $wav\" | tee -a rip.log\n")
+                    f.write('    base=$(basename "$wav" .wav)\n')
+                    f.write('    ffmpeg -i "$wav" -acodec alac "${base}.m4a" 2>&1 | tee -a rip.log && rm "$wav"\n')
+                    f.write("  fi\n")
+                    f.write("done\n")
+                
+                f.write("echo 'COMPLETE' > status.txt\n")
+                f.write("echo '[RIP] Audio CD rip complete!' | tee -a rip.log\n")
+            os.chmod(script_path, 0o755)
+            
+            # Start ripping in background
+            print("[RIP] Starting rip script: " + script_path, file=sys.stderr, flush=True)
+            subprocess.Popen(["/bin/sh", script_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            
+            print("[RIP] Audio CD rip started to " + output_dir, file=sys.stderr, flush=True)
+            return jsonify({"ok": True, "output": "Ripping audio CD to " + output_dir + "\\nThis will take several minutes...\\nCheck rip.log in the output folder for progress."})
+        
+        elif disc_type == "Video DVD":
+            # Get format preference from request
+            from flask import request
+            req_data = request.get_json() or {}
+            rip_format = req_data.get('format', 'iso')  # default to iso
+            
+            # Mount DVD first if not already mounted (with timeout)
+            check_mount = subprocess.run(f"mount | grep {OPTICAL}", shell=True, capture_output=True)
+            if check_mount.returncode != 0:
+                # Not mounted, mount it now
+                try:
+                    mount_result = subprocess.run(f"mount -t udf,iso9660 -o ro /dev/sr0 {OPTICAL} 2>&1", 
+                                                shell=True, capture_output=True, text=True, timeout=10)
+                except subprocess.TimeoutExpired:
+                    return jsonify({"ok": False, "error": "DVD mount timeout - disc may be damaged"})
+                
+                if mount_result.returncode != 0:
+                    return jsonify({"ok": False, "error": f"Could not mount DVD: {mount_result.stdout}"})
+            
+            # Get DVD label/name (with timeout)
+            label = "DVD"
+            try:
+                blkid_result = subprocess.run("blkid /dev/sr0 2>&1", shell=True, capture_output=True, text=True, timeout=3)
+                if "LABEL=" in blkid_result.stdout:
+                    for part in blkid_result.stdout.split():
+                        if part.startswith("LABEL="):
+                            label = part.split("=", 1)[1].strip('"').replace(" ", "_")
+                            break
+            except subprocess.TimeoutExpired:
+                print("[RIP] blkid timeout, using generic label", file=sys.stderr, flush=True)
+            
+            timestamp = subprocess.run("date +%Y%m%d_%H%M%S", shell=True, capture_output=True, text=True).stdout.strip()
+            
+            if rip_format == 'mkv':
+                # Rip to MP4/M4V using HandBrakeCLI (Apple-friendly format)
+                output_file = f"/raid5/cd-rips/{label}_{timestamp}.m4v"
+                log_file = f"/raid5/cd-rips/{label}_{timestamp}.log"
+                
+                # HandBrakeCLI with Apple 1080p30 preset (H.264 + AAC), ripping main feature
+                rip_cmd = f"HandBrakeCLI -i /dev/sr0 -o {output_file} --preset='Apple 1080p60 Surround' --main-feature 2>&1 | tee {log_file}"
+                print(f"[RIP] Executing HandBrakeCLI: {rip_cmd}", file=sys.stderr, flush=True)
+                
+                try:
+                    subprocess.Popen(rip_cmd, shell=True)
+                except Exception as e:
+                    print(f"[RIP] Error starting HandBrakeCLI: {str(e)}", file=sys.stderr, flush=True)
+                    return jsonify({"ok": False, "error": f"Failed to start HandBrake rip: {str(e)}"})
+                
+                print(f"[RIP] Video DVD rip to M4V started: {output_file}", file=sys.stderr, flush=True)
+                return jsonify({"ok": True, "output": f"Ripping video DVD to M4V (Apple format):\\n{output_file}\\n\\nThis will take 30-90 minutes depending on length.\\nHandBrake will transcode with H.264 video and AAC audio for Apple devices."})
+            
+            else:
+                # Rip to ISO using dd
+                output_file = f"/raid5/cd-rips/{label}_{timestamp}.iso"
+                log_file = f"/raid5/cd-rips/{label}_{timestamp}.log"
+                
+                # Set DVD drive to slower speed to reduce read errors (16x = 22160 KB/s)
+                try:
+                    subprocess.run("eject -x 16 /dev/sr0", shell=True, timeout=5, capture_output=True)
+                    print(f"[RIP] Set drive speed to 16x", file=sys.stderr, flush=True)
+                except:
+                    pass  # If eject -x fails, continue anyway
+                
+                # dd command for ISO creation
+                rip_cmd = f"dd if=/dev/sr0 of={output_file} bs=2048 conv=noerror,sync 2> {log_file}"
+                print(f"[RIP] Executing dd: {rip_cmd}", file=sys.stderr, flush=True)
+                
+                try:
+                    subprocess.Popen(rip_cmd, shell=True)
+                except Exception as e:
+                    print(f"[RIP] Error starting dd: {str(e)}", file=sys.stderr, flush=True)
+                    return jsonify({"ok": False, "error": f"Failed to start ISO rip: {str(e)}"})
+                
+                print(f"[RIP] Video DVD rip to ISO started: {output_file}", file=sys.stderr, flush=True)
+                return jsonify({"ok": True, "output": f"Ripping video DVD to ISO:\\n{output_file}\\n\\nThis will take 10-30 minutes.\\nNote: Encrypted DVDs may fail with I/O errors."})
+        
+        else:
+            return jsonify({"ok": False, "error": f"Ripping not supported for {disc_type}"})
+    
+    @app.route("/automount/rip/cancel", methods=["POST"])
+    def cancel_rip():
+        """Cancel an active rip and clean up files"""
+        import sys
+        from flask import request
+        
+        req_data = request.get_json() or {}
+        rip_name = req_data.get('name', '')
+        
+        if not rip_name:
+            return jsonify({"ok": False, "error": "No rip name provided"})
+        
+        print(f"[RIP] Cancelling rip: {rip_name}", file=sys.stderr, flush=True)
+        
+        # Kill any HandBrakeCLI or dd processes related to this rip
+        processes_killed = 0
+        
+        # Try to kill HandBrakeCLI processes
+        ps_result = subprocess.run(f"pgrep -f 'HandBrakeCLI.*{rip_name}'", shell=True, capture_output=True, text=True)
+        for pid in ps_result.stdout.strip().split('\\n'):
+            if pid:
+                try:
+                    subprocess.run(f"kill -9 {pid}", shell=True, timeout=2)
+                    processes_killed += 1
+                    print(f"[RIP] Killed HandBrakeCLI process {pid}", file=sys.stderr, flush=True)
+                except:
+                    pass
+        
+        # Try to kill dd processes
+        ps_result = subprocess.run(f"pgrep -f 'dd if=/dev/sr0.*{rip_name}'", shell=True, capture_output=True, text=True)
+        for pid in ps_result.stdout.strip().split('\\n'):
+            if pid:
+                try:
+                    subprocess.run(f"kill -9 {pid}", shell=True, timeout=2)
+                    processes_killed += 1
+                    print(f"[RIP] Killed dd process {pid}", file=sys.stderr, flush=True)
+                except:
+                    pass
+        
+        # Try to kill cdparanoia processes for audio CDs (kill all, they're likely related)
+        ps_result = subprocess.run("pgrep -f cdparanoia", shell=True, capture_output=True, text=True)
+        for pid in ps_result.stdout.strip().split('\\n'):
+            if pid:
+                try:
+                    subprocess.run(f"kill -9 {pid}", shell=True, timeout=2)
+                    processes_killed += 1
+                    print(f"[RIP] Killed cdparanoia process {pid}", file=sys.stderr, flush=True)
+                except:
+                    pass
+        
+        # Try to kill any ffmpeg processes (for ALAC encoding)
+        ps_result = subprocess.run("pgrep -f ffmpeg", shell=True, capture_output=True, text=True)
+        for pid in ps_result.stdout.strip().split('\\n'):
+            if pid:
+                try:
+                    subprocess.run(f"kill -9 {pid}", shell=True, timeout=2)
+                    processes_killed += 1
+                    print(f"[RIP] Killed ffmpeg process {pid}", file=sys.stderr, flush=True)
+                except:
+                    pass
+        
+        # Delete incomplete output files
+        files_deleted = 0
+        base_path = "/raid5/cd-rips"
+        
+        # Check for various file types
+        for ext in ['.m4v', '.mkv', '.iso', '.log']:
+            file_path = os.path.join(base_path, rip_name + ext)
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    files_deleted += 1
+                    print(f"[RIP] Deleted {file_path}", file=sys.stderr, flush=True)
+                except Exception as e:
+                    print(f"[RIP] Failed to delete {file_path}: {str(e)}", file=sys.stderr, flush=True)
+        
+        # Check for audio CD directory
+        dir_path = os.path.join(base_path, rip_name)
+        if os.path.isdir(dir_path):
+            try:
+                import shutil
+                shutil.rmtree(dir_path)
+                files_deleted += 1
+                print(f"[RIP] Deleted directory {dir_path}", file=sys.stderr, flush=True)
+            except Exception as e:
+                print(f"[RIP] Failed to delete {dir_path}: {str(e)}", file=sys.stderr, flush=True)
+        
+        message = f"Cancelled rip: {rip_name}. "
+        if processes_killed > 0:
+            message += f"Killed {processes_killed} process(es). "
+        if files_deleted > 0:
+            message += f"Deleted {files_deleted} file(s)."
+        else:
+            message += "No files to clean up."
+        
+        print(f"[RIP] {message}", file=sys.stderr, flush=True)
+        return jsonify({"ok": True, "message": message})
+    
+    # For gunicorn to find the app
+    # No need for if __name__ == "__main__" block

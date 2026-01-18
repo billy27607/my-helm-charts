@@ -2,7 +2,7 @@
 
 ## Repository Overview
 
-This is a **home lab Helm charts repository** for deploying smart home and media services on Kubernetes. Charts are hosted on GitHub Pages and designed for single-node edge deployments with hardware device access (USB, GPU, serial).
+This is a **home lab Helm charts repository** for deploying smart home and media services on Kubernetes. Charts are hosted on GitHub Pages via chart-releaser-action and designed for single-node edge deployments with hardware device access (USB, GPU, serial devices).
 
 ## Architecture Principles
 
@@ -25,6 +25,30 @@ devices:
     - /dev/apex_0     # Google Coral PCIe TPU
 ```
 Requires `securityContext.privileged: true` for device access.
+
+**Template pattern for device mounting:**
+```yaml
+volumeMounts:
+  {{- if .Values.devices.usb }}
+  - name: usb
+    mountPath: /dev/bus/usb
+  {{- end }}
+  {{- range .Values.devices.serial }}
+  - name: {{ . | base | lower | replace "." "-" }}
+    mountPath: {{ . }}
+  {{- end }}
+volumes:
+  {{- if .Values.devices.usb }}
+  - name: usb
+    hostPath:
+      path: /dev/bus/usb
+  {{- end }}
+  {{- range .Values.devices.serial }}
+  - name: {{ . | base | lower | replace "." "-" }}
+    hostPath:
+      path: {{ . }}
+  {{- end }}
+```
 
 **Common devices in this homelab:**
 - **Coral TPU** (USB): `devices.usb: true` for ML object detection in Scrypted
@@ -54,14 +78,14 @@ This repository contains three types of charts:
 
 ```bash
 # Helm workflows (preferred)
-scripts/k8s-helpers.sh helm-install scrypted my-release --set hostNetwork=false
-scripts/k8s-helpers.sh helm-upgrade scrypted my-release --values custom.yaml
-scripts/k8s-helpers.sh helm-status my-release
-scripts/k8s-helpers.sh helm-logs my-release     # Auto-detects pod labels
-scripts/k8s-helpers.sh helm-restart my-release  # Rollout restart
-scripts/k8s-helpers.sh helm-uninstall my-release
+scripts/k8s-helpers.sh helm-install scrypted my-release --namespace=ourplan
+scripts/k8s-helpers.sh helm-upgrade scrypted my-release --namespace=ourplan --set hostNetwork=false
+scripts/k8s-helpers.sh helm-status my-release --namespace=ourplan
+scripts/k8s-helpers.sh helm-logs my-release --namespace=ourplan     # Auto-detects pod labels
+scripts/k8s-helpers.sh helm-restart my-release --namespace=ourplan  # Rollout restart
+scripts/k8s-helpers.sh helm-uninstall my-release --namespace=ourplan
 
-# Direct YAML workflows (legacy)
+# Direct YAML workflows (legacy - for raw kubectl apply)
 scripts/k8s-helpers.sh status deployment.yaml
 scripts/k8s-helpers.sh logs deployment.yaml     # Extracts app selector
 scripts/k8s-helpers.sh events deployment.yaml
@@ -69,27 +93,30 @@ scripts/k8s-helpers.sh resources deployment.yaml
 ```
 
 **Key features of k8s-helpers.sh:**
-- Auto-detects and uninstalls conflicting releases (prevents hostPort conflicts)
-- Smart pod label detection (tries `app.kubernetes.io/instance`, then `app` selector)
-- Automatic namespace extraction from YAML or args
-- Built-in wait/status checks after operations
+- Auto-detects and uninstalls conflicting releases before upgrade (prevents hostPort/hostNetwork conflicts)
+- Smart pod label detection (tries `app.kubernetes.io/instance=<release>`, then `app=<selector>`)
+- Automatic namespace handling (defaults: "monitoring" for prometheus/headlamp, otherwise requires `--namespace` flag)
+- Built-in wait/status checks after install/upgrade operations
+- Color-coded output for clarity
 
 ### VS Code Tasks
 Run via Command Palette → "Run Task" or terminal directly:
 - **helm: Install/Upgrade/Status/Logs/Restart/Uninstall** - Helm lifecycle operations
-- **k8s: Deploy/Status/Logs/Events/Teardown** - Direct kubectl operations
+- **k8s: Deploy/Status/Logs/Events/Resource Usage/Teardown** - Direct kubectl operations (legacy)
 
 Tasks automatically:
-- Source chart names from `${workspaceFolder}/charts/` directory
-- Prompt for chart name (pickString from available charts)
+- Prompt for chart name (pickString from available charts in `.vscode/tasks.json`)
 - Prompt for release name and namespace (defaults to "ourplan")
-- Support custom Helm args via prompt
+- Support custom Helm args via prompt (e.g., `--set key=value`)
+- Pass all inputs to `k8s-helpers.sh` for unified handling
 
-**Task inputs defined:**
-- `chartName`: Pick from auto-detected charts
-- `releaseName`: Custom release name
+**Task inputs defined in `.vscode/tasks.json`:**
+- `chartName`: Hardcoded list: `["homebridge", "iperf3", "rtl-sdr", "hdhomerun-app-proxy", "auto-mount", "hdhomerun-tuner-proxy", "prometheus", "xcarve", "scrypted", "firefox-remote"]`
+- `releaseName`: Custom release name (user input)
 - `namespace`: Target namespace (default: "ourplan")
 - `helmExtraArgs`: Additional flags (e.g., `--set key=value`)
+
+**Important**: When adding a new chart, update the `chartName` pickString options in `.vscode/tasks.json`
 
 ## Code Conventions
 
@@ -104,10 +131,27 @@ All charts follow standard Helm helper structure in `_helpers.tpl`:
 
 For multi-component charts (homebridge, xcarve), add component-specific variants:
 ```go
+{{/* homebridge pattern - name suffix in helper */}}
 {{- define "homebridge.mosquitto.labels" -}}
+helm.sh/chart: {{ include "homebridge.chart" . }}
+{{ include "homebridge.mosquitto.selectorLabels" . }}
+{{- end }}
+
 {{- define "homebridge.mosquitto.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "homebridge.name" . }}-mosquitto
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/* xcarve pattern - component label */}}
 {{- define "xcarve.cncjs.labels" -}}
-{{- define "xcarve.mjpgStreamer.labels" -}}
+{{ include "xcarve.labels" . }}
+app.kubernetes.io/component: cncjs
+{{- end }}
+
+{{- define "xcarve.cncjs.selectorLabels" -}}
+{{ include "xcarve.selectorLabels" . }}
+app.kubernetes.io/component: cncjs
+{{- end }}
 ```
 
 Example multi-component template structure:
@@ -119,9 +163,17 @@ metadata:
   name: {{ include "homebridge.fullname" . }}-mosquitto
   labels:
     {{- include "homebridge.mosquitto.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "homebridge.mosquitto.selectorLabels" . | nindent 6 }}
 ...
 {{- end }}
 ```
+
+**Key pattern differences:**
+- **homebridge**: Uses name suffix in both helper definition and selectorLabels (e.g., `homebridge.name` → `homebridge.name-mosquitto`)
+- **xcarve**: Uses `app.kubernetes.io/component` label added to base labels (both components share base name)
 
 ### Values.yaml Organization
 Structure by concern, not alphabetically:
@@ -159,6 +211,11 @@ persistentVolumeClaim:
 ### hostNetwork Conflicts
 **Problem**: "port 10443 already in use" when multiple releases use same chart  
 **Solution**: The `helm-upgrade` command auto-detects and uninstalls conflicting releases. Always use release names distinct from chart names.
+
+**How conflict detection works:**
+- Before upgrade, `k8s-helpers.sh helm-upgrade` searches all namespaces for other releases using the same chart
+- Automatically uninstalls conflicting releases to free hostPort/hostNetwork bindings
+- Example: Upgrading `scrypted` chart as release `my-scrypted` will first check for other `scrypted-*` releases and uninstall them
 
 ### Device Access Failures
 **Required**: `privileged: true` for serial/USB devices  
@@ -245,4 +302,19 @@ Always include `app: <name>` in deployment labels for compatibility.
 
 ## Release Process
 
-Charts are auto-packaged and published to GitHub Pages via chart-releaser action on push to `main`. Bump `version` in `Chart.yaml` to trigger new release.
+Charts are auto-packaged and published to GitHub Pages via [chart-releaser-action](./.github/workflows/release-charts.yaml) on push to `main` branch (when `charts/**` paths change). Bump `version` in `Chart.yaml` to trigger new release.
+
+**Release workflow:**
+1. Edit chart files under `charts/<chart-name>/`
+2. Bump `version` in `Chart.yaml` (semver required)
+3. Commit and push to `main` branch
+4. GitHub Action runs chart-releaser:
+   - Packages charts using `helm package`
+   - Creates GitHub releases with chart archives
+   - Updates `index.yaml` on `gh-pages` branch
+5. Charts become available at: `https://billy27607.github.io/my-helm-charts`
+
+**Chart-releaser config:**
+- `charts_dir: charts` - location of chart sources
+- `skip_existing: true` - won't re-release same version
+- Auto-creates `gh-pages` branch on first release
