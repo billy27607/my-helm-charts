@@ -3,6 +3,17 @@ entries:
   auto-mount:
   - apiVersion: v2
     appVersion: "1.0"
+    created: "2026-01-20T19:34:01.771910653Z"
+    description: Auto-mount hot-swap drives and optical discs with SMB sharing and
+      simple eject UI
+    digest: cd50ce78fa5a6d8da4b0430b637efb83d252f2754c5fd1c259b911fb99d83ab8
+    name: auto-mount
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/auto-mount-0.1.79/auto-mount-0.1.79.tgz
+    version: 0.1.79
+  - apiVersion: v2
+    appVersion: "1.0"
     created: "2026-01-18T19:52:15.747019898Z"
     description: Auto-mount hot-swap drives and optical discs with SMB sharing and
       simple eject UI
@@ -302,4 +313,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.1.0/xcarve-0.1.0.tgz
     version: 0.1.0
-generated: "2026-01-18T19:52:15.747077856Z"
+generated: "2026-01-20T19:34:01.771993267Z"
