@@ -214,7 +214,7 @@ data:
     
     # Global cache for disc metadata (prevents repeated lookups)
     _disc_metadata_cache = {}
-    _last_disc_state = {"present": False, "type": ""}
+    _last_disc_state = {"present": False, "type": "", "info": ""}
     
     def lookup_cd_metadata(disc_id):
         """Lookup CD metadata from MusicBrainz, with caching"""
@@ -303,7 +303,7 @@ data:
         return "\n\n".join(mount_info) if mount_info else "Not mounted"
     
     # Track last disc state to avoid repeated logging
-    _last_disc_state = {"present": False, "type": ""}
+    _last_disc_state = {"present": False, "type": "", "info": ""}
     _last_disc_check_time = 0
     _mount_in_progress = {"active": False, "type": ""}
     _eject_in_progress = False
@@ -365,7 +365,7 @@ data:
         if result.returncode != 0 or not result.stdout.strip() or result.stdout.strip() == "0":
             if _last_disc_state["present"]:
                 print("[DISC] Disc removed", file=sys.stderr, flush=True)
-                _last_disc_state = {"present": False, "type": "No disc"}
+                _last_disc_state = {"present": False, "type": "No disc", "info": ""}
             _last_disc_check_time = current_time
             return {"present": False, "type": "No disc", "info": ""}
         
@@ -391,7 +391,7 @@ data:
                 disc_id = disc.id
                 if not _last_disc_state["present"] or _last_disc_state["type"] != "Audio CD":
                     print(f"[DISC] Audio CD inserted, ID: {disc_id}, {size_mb} MB", file=sys.stderr, flush=True)
-                    _last_disc_state = {"present": True, "type": "Audio CD"}
+                    _last_disc_state = {"present": True, "type": "Audio CD", "info": ""}
                 
                 # Try to get album name from MusicBrainz
                 metadata = lookup_cd_metadata(disc_id)
@@ -656,8 +656,8 @@ data:
                                 // Show mount/unmount/eject for other disc types
                                 optButtons.innerHTML = '<button onclick="mount(\\'optical\\', this)">Mount</button><button onclick="unmount(\\'optical\\', this)">Unmount</button><button onclick="eject(this)">Eject</button>';
                             } else {
-                                // No disc - show default buttons
-                                optButtons.innerHTML = '<button onclick="mount(\\'optical\\', this)">Mount</button><button onclick="unmount(\\'optical\\', this)">Unmount</button><button onclick="eject(this)">Eject</button>';
+                                // No disc - prompt user to load and detect
+                                optButtons.innerHTML = '<button onclick="refresh(this)" style="background-color: #4a90e2;">Load Disc & Detect</button>';
                             }
                             
                             // Re-enable refresh button
@@ -1134,7 +1134,7 @@ data:
                 time.sleep(2)
         
         # Clear cached disc state immediately after eject
-        _last_disc_state = {"present": False, "type": "No disc"}
+        _last_disc_state = {"present": False, "type": "No disc", "info": ""}
         
         # Keep eject flag active until user clicks "Close & Detect"
         # No background thread - user controls when to resume detection
