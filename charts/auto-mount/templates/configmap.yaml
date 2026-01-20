@@ -21,6 +21,7 @@ data:
       samba python3 python3-pip python3-venv bash util-linux e2fsprogs procps \
       exfatprogs udftools genisoimage cdparanoia flac curl jq wget libdiscid0 \
       libdiscid-dev cd-discid avahi-daemon dbus handbrake-cli libdvdcss2 eject \
+      ffmpeg \
       && rm -rf /var/lib/apt/lists/*
     
     # Load CD-ROM filesystem kernel modules
