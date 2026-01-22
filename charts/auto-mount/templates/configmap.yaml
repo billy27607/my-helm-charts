@@ -9,26 +9,9 @@ data:
     #!/bin/sh
     set -e
     
-    # Install required packages
-    export DEBIAN_FRONTEND=noninteractive
-    
-    # Add contrib repository for libdvdcss2
-    echo "deb http://deb.debian.org/debian bookworm main contrib" > /etc/apt/sources.list
-    echo "deb http://deb.debian.org/debian-security bookworm-security main contrib" >> /etc/apt/sources.list
-    echo "deb http://deb.debian.org/debian bookworm-updates main contrib" >> /etc/apt/sources.list
-    
-    apt-get update && apt-get install -y --no-install-recommends \
-      samba python3 python3-pip python3-venv bash util-linux e2fsprogs procps \
-      exfatprogs udftools genisoimage cdparanoia flac curl jq wget libdiscid0 \
-      libdiscid-dev cd-discid avahi-daemon dbus handbrake-cli libdvdcss2 eject \
-      ffmpeg \
-      && rm -rf /var/lib/apt/lists/*
-    
     # Load CD-ROM filesystem kernel modules
     modprobe isofs 2>/dev/null || true
     modprobe udf 2>/dev/null || true
-    
-    pip3 install --break-system-packages flask gunicorn musicbrainzngs discid
     
     # Create mount points
     mkdir -p {{ .Values.hotswapPath }} {{ .Values.opticalPath }}
@@ -582,7 +565,10 @@ data:
             </div>
             
             <div class="card" id="rip-status-card" style="display:none;">
-                <h2>🎵 Rip Status</h2>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+                    <h2 style="margin:0;">🎵 Rip Status</h2>
+                    <div id="rip-cancel-buttons"></div>
+                </div>
                 <div id="rip-status" class="output">No active rips</div>
             </div>
             
@@ -799,17 +785,30 @@ data:
                             
                             if (hasInProgress) {
                                 document.getElementById('rip-status-card').style.display = 'block';
+                                
+                                // Build cancel buttons HTML (goes in title area)
+                                let cancelButtonsHtml = '';
+                                // Build status/log HTML (goes in scrolling area)
                                 let statusHtml = '';
-                                // Only show logs for IN_PROGRESS rips (with cancel button)
+                                
+                                // Process each IN_PROGRESS rip
                                 data.rips.filter(r => r.status && r.status.startsWith('IN_PROGRESS')).forEach(rip => {
-                                    statusHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
+                                    // Add cancel button (fixed in title area)
+                                    cancelButtonsHtml += '<button onclick="cancelRip(\\'' + rip.dir + '\\')" style="background:#dc3545;padding:8px 15px;margin-left:10px;">Cancel ' + rip.dir + '</button>';
+                                    
+                                    // Add status and log (in scrolling area)
+                                    statusHtml += '<div style="margin-bottom:10px;">';
                                     statusHtml += '<div><strong>' + rip.dir + '</strong>: ' + rip.status + '</div>';
-                                    statusHtml += '<button onclick="cancelRip(\\'' + rip.dir + '\\')" style="background:#dc3545;padding:5px 10px;">Cancel</button>';
                                     statusHtml += '</div>';
                                     if (rip.log) {
                                         statusHtml += '<pre style="margin:0 0 15px 0;">' + rip.log + '</pre>';
                                     }
                                 });
+                                
+                                // Update cancel buttons in title area
+                                document.getElementById('rip-cancel-buttons').innerHTML = cancelButtonsHtml;
+                                
+                                // Update status/logs in scrolling area
                                 const ripStatusElement = document.getElementById('rip-status');
                                 ripStatusElement.innerHTML = statusHtml;
                                 // Auto-scroll to bottom to show latest progress
@@ -1164,6 +1163,49 @@ data:
         """Rip audio CD or video DVD"""
         import sys
         
+        # Check if a rip is already in progress
+        try:
+            if os.path.exists("/raid5/cd-rips"):
+                for item in os.listdir("/raid5/cd-rips"):
+                    item_path = os.path.join("/raid5/cd-rips", item)
+                    
+                    # Check for audio CD rips
+                    if os.path.isdir(item_path) and (item.startswith("AudioCD_") or " - " in item):
+                        status_file = os.path.join(item_path, "status.txt")
+                        if os.path.exists(status_file):
+                            with open(status_file, 'r') as f:
+                                status = f.read().strip()
+                                if status == "IN_PROGRESS":
+                                    return jsonify({"ok": False, "error": f"A rip is already in progress: {item}\\nPlease wait for it to complete or cancel it first."})
+                    
+                    # Check for DVD rips (ISO/M4V)
+                    elif (item.endswith(".iso") or item.endswith(".m4v")) and item.startswith("DVD_"):
+                        file_path = item_path
+                        file_type = "ISO" if item.endswith(".iso") else "M4V"
+                        
+                        # Check if process is still running
+                        if file_type == "ISO":
+                            ps_cmd = f"ps aux | grep 'dd if=/dev/sr0 of={file_path}' | grep -v grep"
+                        else:
+                            ps_cmd = f"ps aux | grep 'HandBrakeCLI.*{item}' | grep -v grep"
+                        
+                        ps_result = subprocess.run(ps_cmd, shell=True, capture_output=True, text=True)
+                        if len(ps_result.stdout.strip()) > 0:
+                            return jsonify({"ok": False, "error": f"A rip is already in progress: {item}\\nPlease wait for it to complete or cancel it first."})
+                    
+                    # Check for standalone log files (rip starting)
+                    elif item.endswith(".log") and item.startswith("DVD_"):
+                        log_path = item_path
+                        mkv_path = log_path.replace(".log", ".mkv")
+                        iso_path = log_path.replace(".log", ".iso")
+                        m4v_path = log_path.replace(".log", ".m4v")
+                        if not os.path.exists(mkv_path) and not os.path.exists(iso_path) and not os.path.exists(m4v_path):
+                            ps_result = subprocess.run("ps aux | grep -E 'HandBrakeCLI|dd if=/dev/sr0' | grep -v grep", shell=True, capture_output=True, text=True)
+                            if len(ps_result.stdout.strip()) > 0:
+                                return jsonify({"ok": False, "error": f"A rip is already starting: {item}\\nPlease wait for it to complete or cancel it first."})
+        except Exception as e:
+            print(f"[RIP] Error checking for active rips: {str(e)}", file=sys.stderr, flush=True)
+        
         # Detect disc type
         disc_info = detect_optical_disc()
         if not disc_info["present"]:
@@ -1246,12 +1288,20 @@ data:
             script_path = output_dir + "/rip.sh"
             with open(script_path, 'w') as f:
                 f.write("#!/bin/sh\n")
-                f.write("set -e\n")
+                f.write("# Don't use set -e - we want to continue on errors and log them\n")
                 f.write(f"cd \"{output_dir}\"\n")
                 f.write("echo 'IN_PROGRESS' > status.txt\n")
                 f.write("echo '[RIP] Starting cdparanoia rip at 40x speed...' | tee -a rip.log\n")
-                f.write("cdparanoia -B -S 40 -d /dev/sr0 2>&1 | tee -a rip.log\n")
+                f.write("if cdparanoia -B -S 40 -d /dev/sr0 2>&1 | tee -a rip.log; then\n")
+                f.write("  echo '[RIP] cdparanoia completed successfully' | tee -a rip.log\n")
+                f.write("else\n")
+                f.write("  echo '[ERROR] cdparanoia failed with exit code $?' | tee -a rip.log\n")
+                f.write("fi\n")
                 f.write("echo '[RIP] Converting WAV to ALAC...' | tee -a rip.log\n")
+                f.write("FAILED_TRACKS=''\n")
+                f.write("# Ensure output is unbuffered\n")
+                f.write("export PYTHONUNBUFFERED=1\n")
+                f.write("stdbuf -oL -eL true 2>/dev/null || true\n")
                 
                 # If metadata found, tag each file
                 if metadata["found"]:
@@ -1260,29 +1310,64 @@ data:
                         track_num = str(i).zfill(2)
                         safe_title = track["title"].replace("/", "-").replace("\\", "-").replace('"', "'").replace("'", "'\\''")
                         f.write(f"if [ -f track{track_num}.cdda.wav ]; then\n")
-                        f.write(f"  echo '[RIP] Converting Track {i}: {safe_title}' | tee -a rip.log\n")
-                        f.write(f"  ffmpeg -i track{track_num}.cdda.wav -acodec alac \\\n")
-                        f.write(f"    -metadata artist=\"{metadata['artist']}\" \\\n")
-                        f.write(f"    -metadata album=\"{metadata['album']}\" \\\n")
-                        f.write(f"    -metadata title=\"{safe_title}\" \\\n")
-                        f.write(f"    -metadata track={i}")
+                        f.write(f"  # Skip if M4A already exists\n")
+                        f.write(f"  if [ -f \"{i:02d} - {safe_title}.m4a\" ]; then\n")
+                        f.write(f"    echo '[RIP] Skipping Track {i} - M4A already exists' | tee -a rip.log\n")
+                        f.write(f"    rm track{track_num}.cdda.wav\n")
+                        f.write(f"  else\n")
+                        f.write(f"    echo '[RIP] Converting Track {i}: {safe_title}' | tee -a rip.log\n")
+                        f.write(f"    # Use -nostdin to prevent ffmpeg from waiting for input, redirect output directly\n")
+                        f.write(f"    if ffmpeg -nostdin -y -i track{track_num}.cdda.wav -acodec alac \\\n")
+                        f.write(f"      -metadata artist=\"{metadata['artist']}\" \\\n")
+                        f.write(f"      -metadata album=\"{metadata['album']}\" \\\n")
+                        f.write(f"      -metadata title=\"{safe_title}\" \\\n")
+                        f.write(f"      -metadata track={i}")
                         if metadata["year"]:
-                            f.write(f" \\\n    -metadata date={metadata['year']}")
-                        f.write(f" \\\n    \"{i:02d} - {safe_title}.m4a\" 2>&1 | tee -a rip.log\n")
-                        f.write(f"  rm track{track_num}.cdda.wav\n")
+                            f.write(f" \\\n      -metadata date={metadata['year']}")
+                        f.write(f" \\\n      \"{i:02d} - {safe_title}.m4a\" </dev/null >>rip.log 2>&1; then\n")
+                        f.write(f"      rm track{track_num}.cdda.wav\n")
+                        f.write(f"      echo '[RIP] Track {i} conversion successful' | tee -a rip.log\n")
+                        f.write(f"    else\n")
+                        f.write(f"      echo '[ERROR] Track {i} conversion FAILED (exit code $?)' | tee -a rip.log\n")
+                        f.write(f"      FAILED_TRACKS=\"$FAILED_TRACKS {i}\"\n")
+                        f.write(f"    fi\n")
+                        f.write(f"  fi\n")
+                        f.write("else\n")
+                        f.write(f"  echo '[ERROR] Track {i} WAV file not found: track{track_num}.cdda.wav' | tee -a rip.log\n")
+                        f.write(f"  FAILED_TRACKS=\"$FAILED_TRACKS {i}\"\n")
                         f.write("fi\n")
                 else:
                     # No metadata - generic conversion
                     f.write("for wav in *.wav; do\n")
                     f.write('  if [ -f "$wav" ]; then\n')
-                    f.write("    echo \"[RIP] Converting $wav\" | tee -a rip.log\n")
                     f.write('    base=$(basename "$wav" .wav)\n')
-                    f.write('    ffmpeg -i "$wav" -acodec alac "${base}.m4a" 2>&1 | tee -a rip.log && rm "$wav"\n')
+                    f.write('    # Skip if M4A already exists\n')
+                    f.write('    if [ -f "${base}.m4a" ]; then\n')
+                    f.write('      echo "[RIP] Skipping $wav - M4A already exists" | tee -a rip.log\n')
+                    f.write('      rm "$wav"\n')
+                    f.write('      continue\n')
+                    f.write('    fi\n')
+                    f.write("    echo \"[RIP] Converting $wav\" | tee -a rip.log\n")
+                    f.write('    # Use -nostdin to prevent ffmpeg from waiting for input, redirect output directly\n')
+                    f.write('    if ffmpeg -nostdin -y -i "$wav" -acodec alac "${base}.m4a" </dev/null >>rip.log 2>&1; then\n')
+                    f.write('      rm "$wav"\n')
+                    f.write('      echo "[RIP] $wav conversion successful" | tee -a rip.log\n')
+                    f.write('    else\n')
+                    f.write('      echo "[ERROR] $wav conversion FAILED (exit code $?)" | tee -a rip.log\n')
+                    f.write('      FAILED_TRACKS="$FAILED_TRACKS $base"\n')
+                    f.write('    fi\n')
                     f.write("  fi\n")
                     f.write("done\n")
                 
-                f.write("echo 'COMPLETE' > status.txt\n")
-                f.write("echo '[RIP] Audio CD rip complete!' | tee -a rip.log\n")
+                f.write("# Check for failures and set final status\n")
+                f.write("if [ -n \"$FAILED_TRACKS\" ]; then\n")
+                f.write("  echo \"[RIP] Audio CD rip COMPLETED WITH ERRORS\" | tee -a rip.log\n")
+                f.write("  echo \"[ERROR] Failed tracks:$FAILED_TRACKS\" | tee -a rip.log\n")
+                f.write("  echo 'COMPLETE_WITH_ERRORS' > status.txt\n")
+                f.write("else\n")
+                f.write("  echo '[RIP] Audio CD rip complete!' | tee -a rip.log\n")
+                f.write("  echo 'COMPLETE' > status.txt\n")
+                f.write("fi\n")
             os.chmod(script_path, 0o755)
             
             # Start ripping in background

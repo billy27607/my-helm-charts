@@ -1,7 +1,7 @@
 # Auto-mount service configuration
 image:
-  repository: debian
-  tag: "12-slim"
+  repository: ghcr.io/billy27607/auto-mount
+  tag: "latest"
   pullPolicy: IfNotPresent
 
 # Service display name (shown in Finder Locations)

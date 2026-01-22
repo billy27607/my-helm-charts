@@ -23,6 +23,19 @@
       "type": "promptString",
       "description": "Extra Helm args (optional, e.g., --set key=value)",
       "default": ""
+    },
+    {
+      "id": "dockerImageTag",
+      "type": "promptString",
+      "description": "Docker image tag (e.g., latest, v1.0.0)",
+      "default": "latest"
+    },
+    {
+      "id": "dockerRegistry",
+      "type": "pickString",
+      "description": "Docker registry",
+      "options": ["ghcr.io", "docker.io"],
+      "default": "ghcr.io"
     }
   ],
   "tasks": [
@@ -190,6 +203,39 @@
       "label": "helm: Quick Deploy (no rebuild)",
       "type": "shell",
       "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-upgrade '${input:chartName}' '${input:releaseName}' '--namespace=${input:namespace}' '${input:helmExtraArgs}' && sleep 3 && kubectl exec -n ${input:namespace} deployment/${input:releaseName} -- pkill -f gunicorn || true",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "docker: Build auto-mount",
+      "type": "shell",
+      "command": "cd ${workspaceFolder}/charts/auto-mount && docker build --platform linux/amd64 -t ${input:dockerRegistry}/billy27607/auto-mount:${input:dockerImageTag} .",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "docker: Push auto-mount",
+      "type": "shell",
+      "command": "docker push ${input:dockerRegistry}/billy27607/auto-mount:${input:dockerImageTag}",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "docker: Build and Push auto-mount",
+      "type": "shell",
+      "command": "cd ${workspaceFolder}/charts/auto-mount && docker build --platform linux/amd64 -t ${input:dockerRegistry}/billy27607/auto-mount:${input:dockerImageTag} . && docker push ${input:dockerRegistry}/billy27607/auto-mount:${input:dockerImageTag}",
       "presentation": {
         "reveal": "always",
         "panel": "shared",

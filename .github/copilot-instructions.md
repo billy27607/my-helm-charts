@@ -111,12 +111,13 @@ Tasks automatically:
 - Pass all inputs to `k8s-helpers.sh` for unified handling
 
 **Task inputs defined in `.vscode/tasks.json`:**
-- `chartName`: Hardcoded list: `["homebridge", "iperf3", "rtl-sdr", "hdhomerun-app-proxy", "auto-mount", "hdhomerun-tuner-proxy", "prometheus", "xcarve", "scrypted", "firefox-remote"]`
+- `chartName`: Hardcoded list of all charts (must match directory names in `charts/`)
+  - Current list: `["homebridge", "iperf3", "rtl-sdr", "hdhomerun-app-proxy", "auto-mount", "hdhomerun-tuner-proxy", "prometheus", "xcarve", "scrypted", "firefox-remote"]`
 - `releaseName`: Custom release name (user input)
 - `namespace`: Target namespace (default: "ourplan")
 - `helmExtraArgs`: Additional flags (e.g., `--set key=value`)
 
-**Important**: When adding a new chart, update the `chartName` pickString options in `.vscode/tasks.json`
+**Critical**: When adding a new chart, update the `chartName` pickString options in `.vscode/tasks.json` to include the new chart name
 
 ## Code Conventions
 
@@ -215,7 +216,8 @@ persistentVolumeClaim:
 **How conflict detection works:**
 - Before upgrade, `k8s-helpers.sh helm-upgrade` searches all namespaces for other releases using the same chart
 - Automatically uninstalls conflicting releases to free hostPort/hostNetwork bindings
-- Example: Upgrading `scrypted` chart as release `my-scrypted` will first check for other `scrypted-*` releases and uninstall them
+- Uses `helm list -A --output json | jq` to find releases with matching chart names
+- Example: Upgrading `scrypted` chart as release `my-scrypted` will check for any other releases using the `scrypted` chart (excluding `my-scrypted` itself) and uninstall them first
 
 ### Device Access Failures
 **Required**: `privileged: true` for serial/USB devices  
