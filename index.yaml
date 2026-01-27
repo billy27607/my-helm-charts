@@ -305,6 +305,17 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/scrypted-0.1.0/scrypted-0.1.0.tgz
     version: 0.1.0
+  website-monitor:
+  - apiVersion: v2
+    appVersion: "1.0"
+    created: "2026-01-27T15:31:46.762737954Z"
+    description: Monitor website availability and report when sites are down
+    digest: ad9d501ff1fcc29261a67f08ad4c5daf1018d174ba8a213332146965694dddb0
+    name: website-monitor
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/website-monitor-0.1.0/website-monitor-0.1.0.tgz
+    version: 0.1.0
   xcarve:
   - apiVersion: v2
     appVersion: latest
@@ -324,4 +335,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.1.0/xcarve-0.1.0.tgz
     version: 0.1.0
-generated: "2026-01-20T19:57:36.424034097Z"
+generated: "2026-01-27T15:31:46.762828964Z"
