@@ -1,0 +1,67 @@
+image:
+  repository: curlimages/curl
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Websites to monitor
+monitors:
+  - name: ourplan
+    url: https://ourplan.baezw.com
+    method: GET
+    expectedStatus: 200
+    timeout: 10
+    enabled: true
+
+# Check interval (in seconds)
+checkInterval: 300  # 300 seconds = 5 minutes
+
+# Notification settings
+notifications:
+  # GitHub Issues (creates issue when site is down - triggers mobile push)
+  github:
+    enabled: true
+    # GitHub Personal Access Token with 'repo' scope
+    # Generate at: https://github.com/settings/tokens
+    token: ""
+    # Repository in format: owner/repo
+    repo: "billy27607/my-plan"
+    # Labels to add to issues
+    labels: ["alert", "website-down"]
+    # Close issue automatically when site is back up
+    autoClose: true
+  
+  # SMS via email gateway (AT&T: number@txt.att.net)
+  sms:
+    enabled: false
+    to: "9195223015@txt.att.net"
+    from: "website-monitor@baezw.com"
+    # SMTP settings (required for SMS/email)
+    smtp:
+      host: "smtp.gmail.com"
+      port: 587
+      username: ""  # Add your Gmail address
+      password: ""  # Add your Gmail app password
+      useTLS: true
+  
+  # Webhook URL to call when site is down
+  webhook:
+    enabled: false
+    url: ""
+    method: POST
+  
+  # Log to stdout (always enabled)
+  logging:
+    verbose: true
+
+# Environment variables
+env:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

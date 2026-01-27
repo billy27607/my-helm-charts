@@ -73,6 +73,8 @@ This repository contains three types of charts:
 
 ## Development Workflows
 
+**CRITICAL**: VS Code tasks (`.vscode/tasks.json`) are the **primary interface** for all deployment and management operations. Any changes to charts, scripts, or workflows MUST maintain complete and working VS Code task functionality. When adding new charts or features, always update tasks.json accordingly.
+
 ### Local Testing with k8s-helpers.sh
 **Never use kubectl commands directly** - always use the `scripts/k8s-helpers.sh` wrapper script:
 
@@ -116,8 +118,29 @@ Tasks automatically:
 - `releaseName`: Custom release name (user input)
 - `namespace`: Target namespace (default: "ourplan")
 - `helmExtraArgs`: Additional flags (e.g., `--set key=value`)
+- `dockerImageTag`: Docker image tag for custom builds (default: "latest")
+- `dockerRegistry`: Registry selection (ghcr.io or docker.io)
 
-**Critical**: When adding a new chart, update the `chartName` pickString options in `.vscode/tasks.json` to include the new chart name
+**Critical Requirements**:
+1. When adding a new chart, **MUST** update the `chartName` pickString options in `.vscode/tasks.json`
+2. When adding custom Docker images, **MUST** create corresponding `docker: Build`, `docker: Push`, and `docker: Build and Push` tasks
+3. Test all new tasks work correctly before considering the work complete
+
+### Docker Build Tasks (Custom Images)
+For charts with custom Docker images (currently: auto-mount):
+```bash
+# Via VS Code tasks (Command Palette → Run Task)
+- docker: Build auto-mount
+- docker: Push auto-mount
+- docker: Build and Push auto-mount
+
+# Direct commands
+cd charts/auto-mount
+docker build --platform linux/amd64 -t ghcr.io/billy27607/auto-mount:latest .
+docker push ghcr.io/billy27607/auto-mount:latest
+```
+
+**Pattern**: Custom images are built in chart directories with embedded Dockerfiles, then pushed to container registry before Helm deployment
 
 ## Code Conventions
 

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: website-monitor
+description: Monitor website availability and report when sites are down
+type: application
+version: 0.1.0
+appVersion: "1.0"

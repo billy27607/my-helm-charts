@@ -1,0 +1,56 @@
+# Example values for SMS notifications via Gmail
+# 
+# Setup Instructions:
+# 1. Enable 2-factor authentication on your Gmail account
+# 2. Generate an App Password at: https://myaccount.google.com/apppasswords
+# 3. Copy values-example.yaml to values-private.yaml
+# 4. Update with your credentials (keep values-private.yaml in .gitignore)
+# 5. Deploy: helm upgrade website-monitor . -f values-private.yaml
+
+monitors:
+  - name: ourplan
+    url: https://ourplan.baezw.com
+    method: GET
+    expectedStatus: 200
+    timeout: 10
+    enabled: true
+
+schedule: "*/5 * * * *"  # Every 5 minutes
+
+notifications:
+  # RECOMMENDED: GitHub push notifications
+  github:
+    enabled: true
+    token: "ghp_your_github_token_here"  # Generate at: https://github.com/settings/tokens
+    repo: "billy27607/my-helm-charts"
+    labels: ["alert", "website-down"]
+    autoClose: true
+  
+  sms:
+    enabled: true
+    to: "9195223015@txt.att.net"
+    from: "your-email@gmail.com"
+    smtp:
+      host: "smtp.gmail.com"
+      port: 587
+      username: "your-email@gmail.com"
+      password: "your-app-password-here"  # 16-character app password
+      useTLS: true
+
+# Alternative SMTP providers:
+#
+# SendGrid:
+#   smtp:
+#     host: "smtp.sendgrid.net"
+#     port: 587
+#     username: "apikey"
+#     password: "your-sendgrid-api-key"
+#     useTLS: true
+#
+# Mailgun:
+#   smtp:
+#     host: "smtp.mailgun.org"
+#     port: 587
+#     username: "postmaster@your-domain.mailgun.org"
+#     password: "your-mailgun-password"
+#     useTLS: true

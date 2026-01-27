@@ -1,0 +1,162 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "website-monitor.fullname" . }}-script
+  labels:
+    {{- include "website-monitor.labels" . | nindent 4 }}
+data:
+  check-websites.sh: |
+    #!/bin/sh
+    set -e
+
+    echo "=== Website Monitor Started ==="
+    echo "Check interval: {{ .Values.checkInterval }} seconds"
+    echo ""
+
+    while true; do
+      echo "=== Checking websites - $(date) ==="
+      
+      ALL_UP=true
+      
+      {{- range .Values.monitors }}
+      {{- if .enabled }}
+      echo ""
+      echo "Checking {{ .name }}: {{ .url }}"
+      
+      HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+        -L \
+        --max-time {{ .timeout }} \
+        -X {{ .method }} \
+        "{{ .url }}" || echo "000")
+      
+      if [ "$HTTP_CODE" = "{{ .expectedStatus }}" ]; then
+        echo "✓ {{ .name }} is UP (HTTP $HTTP_CODE)"
+        
+        {{- if $.Values.notifications.github.enabled }}
+        {{- if $.Values.notifications.github.autoClose }}
+        # Check if there's an open issue and close it
+        if [ -n "{{ $.Values.notifications.github.token }}" ]; then
+          OPEN_ISSUE=$(curl -s -H "Authorization: token {{ $.Values.notifications.github.token }}" \
+            "https://api.github.com/repos/{{ $.Values.notifications.github.repo }}/issues?state=open&labels=alert,website-down" | \
+            grep -o '"number":[0-9]*' | head -1 | grep -o '[0-9]*' || echo "")
+          
+          if [ -n "$OPEN_ISSUE" ]; then
+            # Close the issue with a comment
+            curl -s -X PATCH \
+              -H "Authorization: token {{ $.Values.notifications.github.token }}" \
+              -H "Content-Type: application/json" \
+              -d '{"state":"closed"}' \
+              "https://api.github.com/repos/{{ $.Values.notifications.github.repo }}/issues/$OPEN_ISSUE"
+            
+            curl -s -X POST \
+              -H "Authorization: token {{ $.Values.notifications.github.token }}" \
+              -H "Content-Type: application/json" \
+              -d "{\"body\":\"✅ Site is back UP (HTTP $HTTP_CODE) - $(date)\"}" \
+              "https://api.github.com/repos/{{ $.Values.notifications.github.repo }}/issues/$OPEN_ISSUE/comments"
+            
+            echo "Closed GitHub issue #$OPEN_ISSUE (site is back up)"
+          fi
+        fi
+        {{- end }}
+        {{- end }}
+      else
+        echo "✗ {{ .name }} is DOWN (HTTP $HTTP_CODE, expected {{ .expectedStatus }})"
+        ALL_UP=false
+        
+        {{- if $.Values.notifications.github.enabled }}
+        # Create GitHub issue (will trigger push notification on mobile)
+        if [ -n "{{ $.Values.notifications.github.token }}" ]; then
+          TIMESTAMP=$(date -Iseconds)
+          ISSUE_TITLE="🚨 Website DOWN: {{ .name }}"
+          ISSUE_BODY="**Alert**: {{ .name }} is not responding correctly\n\n"
+          ISSUE_BODY="${ISSUE_BODY}**URL**: {{ .url }}\n"
+          ISSUE_BODY="${ISSUE_BODY}**Expected**: HTTP {{ .expectedStatus }}\n"
+          ISSUE_BODY="${ISSUE_BODY}**Received**: HTTP $HTTP_CODE\n"
+          ISSUE_BODY="${ISSUE_BODY}**Timestamp**: $TIMESTAMP\n\n"
+          ISSUE_BODY="${ISSUE_BODY}@billy27607 - Site is down!\n\n"
+          ISSUE_BODY="${ISSUE_BODY}---\n*This issue was automatically created by website-monitor*"
+          
+          # Check if issue already exists
+          EXISTING_ISSUE=$(curl -s -H "Authorization: token {{ $.Values.notifications.github.token }}" \
+            "https://api.github.com/repos/{{ $.Values.notifications.github.repo }}/issues?state=open&labels=alert,website-down" | \
+            grep -o '"number":[0-9]*' | head -1 | grep -o '[0-9]*' || echo "")
+          
+          if [ -z "$EXISTING_ISSUE" ]; then
+            # Create new issue
+            LABELS='[{{ range $i, $label := $.Values.notifications.github.labels }}{{if $i}},{{end}}"{{$label}}"{{end}}]'
+            
+            curl -s -X POST \
+              -H "Authorization: token {{ $.Values.notifications.github.token }}" \
+              -H "Content-Type: application/json" \
+              -d "{\"title\":\"$ISSUE_TITLE\",\"body\":\"$ISSUE_BODY\",\"labels\":$LABELS}" \
+              "https://api.github.com/repos/{{ $.Values.notifications.github.repo }}/issues" && \
+              echo "GitHub issue created (push notification sent)" || echo "Failed to create GitHub issue"
+          else
+            # Add comment to existing issue
+            curl -s -X POST \
+              -H "Authorization: token {{ $.Values.notifications.github.token }}" \
+              -H "Content-Type: application/json" \
+              -d "{\"body\":\"Still DOWN - HTTP $HTTP_CODE at $TIMESTAMP\"}" \
+              "https://api.github.com/repos/{{ $.Values.notifications.github.repo }}/issues/$EXISTING_ISSUE/comments" && \
+              echo "Updated existing GitHub issue #$EXISTING_ISSUE" || echo "Failed to update GitHub issue"
+          fi
+        else
+          echo "Warning: GitHub notifications enabled but token not configured"
+        fi
+        {{- end }}
+        
+        {{- if $.Values.notifications.sms.enabled }}
+        # Send SMS via email gateway
+        if [ -n "{{ $.Values.notifications.sms.smtp.host }}" ]; then
+          TIMESTAMP=$(date)
+          MESSAGE="ALERT: {{ .name }} ({{ .url }}) is DOWN. HTTP $HTTP_CODE (expected {{ .expectedStatus }}). Checked at $TIMESTAMP"
+          
+          # Create email content
+          cat > /tmp/email.txt <<EOF
+    From: {{ $.Values.notifications.sms.from }}
+    To: {{ $.Values.notifications.sms.to }}
+    Subject: Website DOWN: {{ .name }}
+    
+    $MESSAGE
+    EOF
+          
+          # Send via SMTP using curl
+          {{- if $.Values.notifications.sms.smtp.useTLS }}
+          curl -s --ssl-reqd \
+          {{- else }}
+          curl -s \
+          {{- end }}
+            --url "smtp://{{ $.Values.notifications.sms.smtp.host }}:{{ $.Values.notifications.sms.smtp.port }}" \
+            --mail-from "{{ $.Values.notifications.sms.from }}" \
+            --mail-rcpt "{{ $.Values.notifications.sms.to }}" \
+            --user "{{ $.Values.notifications.sms.smtp.username }}:{{ $.Values.notifications.sms.smtp.password }}" \
+            --upload-file /tmp/email.txt && echo "SMS notification sent" || echo "Failed to send SMS"
+          
+          rm -f /tmp/email.txt
+        else
+          echo "Warning: SMS enabled but SMTP host not configured"
+        fi
+        {{- end }}
+        
+        {{- if $.Values.notifications.webhook.enabled }}
+        # Send webhook notification
+        curl -s -X {{ $.Values.notifications.webhook.method }} \
+          -H "Content-Type: application/json" \
+          -d "{\"status\":\"down\",\"site\":\"{{ .name }}\",\"url\":\"{{ .url }}\",\"http_code\":\"$HTTP_CODE\",\"timestamp\":\"$(date -Iseconds)\"}" \
+          "{{ $.Values.notifications.webhook.url }}" || echo "Failed to send webhook"
+        {{- end }}
+      fi
+      {{- end }}
+      {{- end }}
+      
+      echo ""
+      if [ "$ALL_UP" = "true" ]; then
+        echo "=== All monitored sites are UP ==="
+      else
+        echo "=== One or more sites are DOWN ==="
+      fi
+      
+      echo "Next check in {{ .Values.checkInterval }} seconds..."
+      echo ""
+      sleep {{ .Values.checkInterval }}
+    done
