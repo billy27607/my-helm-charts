@@ -1,0 +1,17 @@
+{{- if and .Values.octoprint.enabled .Values.octoprint.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "octoprint.fullname" . }}
+  labels:
+    {{- include "octoprint.octoprint.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.octoprint.persistence.accessMode }}
+  {{- if .Values.octoprint.persistence.storageClass }}
+  storageClassName: {{ .Values.octoprint.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.octoprint.persistence.size }}
+{{- end }}

@@ -1,0 +1,17 @@
+{{- if and .Values.octoprint.enabled (not .Values.octoprint.hostNetwork) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "octoprint.fullname" . }}
+  labels:
+    {{- include "octoprint.octoprint.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.octoprint.service.type }}
+  ports:
+    - port: {{ .Values.octoprint.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "octoprint.octoprint.selectorLabels" . | nindent 4 }}
+{{- end }}

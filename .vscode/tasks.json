@@ -5,7 +5,7 @@
       "id": "chartName",
       "type": "pickString",
       "description": "Select a chart to deploy",
-      "options": ["homebridge", "iperf3", "rtl-sdr", "hdhomerun-app-proxy", "auto-mount", "hdhomerun-tuner-proxy", "prometheus", "xcarve", "scrypted", "firefox-remote", "website-monitor"]
+      "options": ["homebridge", "iperf3", "rtl-sdr", "hdhomerun-app-proxy", "auto-mount", "hdhomerun-tuner-proxy", "prometheus", "xcarve", "scrypted", "firefox-remote", "website-monitor", "octoprint"]
     },
     {
       "id": "releaseName",
@@ -190,7 +190,9 @@
       "command": "${workspaceFolder}/scripts/k8s-helpers.sh",
       "args": [
         "helm-uninstall",
-        "${input:releaseName}"
+        "${input:releaseName}",
+        "--namespace",
+        "${input:namespace}"
       ],
       "presentation": {
         "reveal": "always",

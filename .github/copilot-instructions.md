@@ -59,17 +59,27 @@ volumes:
 ### Chart Categories
 This repository contains three types of charts:
 
-**Single-Service Charts** (most charts): scrypted, iperf3, rtl-sdr, hdhomerun-app-proxy, hdhomerun-tuner-proxy, auto-mount, firefox-remote, prometheus
+**Single-Service Charts** (most charts): scrypted, iperf3, rtl-sdr, hdhomerun-app-proxy, hdhomerun-tuner-proxy, auto-mount, firefox-remote, prometheus, website-monitor
 - One deployment per chart
 - Standard `_helpers.tpl` with `<chart>.name`, `<chart>.fullname`, `<chart>.labels`, `<chart>.selectorLabels`
+- Pattern examples:
+  - website-monitor: monitoring with ConfigMap-based shell script injection
 
-**Multi-Component Charts**: homebridge (Homebridge + Mosquitto), xcarve (CNCjs + MJPG-Streamer)
+**Multi-Component Charts**: homebridge (Homebridge + Mosquitto), xcarve (CNCjs + MJPG-Streamer), octoprint (OctoPrint + MJPG-Streamer)
 - Multiple deployments bundled in one chart
 - Pattern structure:
   - Separate `deployment-<component>.yaml` and `service-<component>.yaml` templates
   - Conditional enablement via `.<component>.enabled` in values.yaml
-  - Component-specific helpers in `_helpers.tpl` (e.g., `homebridge.mosquitto.labels`, `xcarve.cncjs.labels`)
+  - Component-specific helpers in `_helpers.tpl` (e.g., `homebridge.mosquitto.labels`, `xcarve.cncjs.labels`, `octoprint.octoprint.labels`)
   - Each component has nested values: `.<component>.image`, `.<component>.persistence`, `.<component>.service`
+- Pattern examples:
+  - octoprint: 3D printer control with USB serial device access + webcam streaming
+
+**Monitoring/Scripting Pattern** (website-monitor):
+- Uses ConfigMap with embedded shell script (`check-websites.sh`) mounted at `/scripts`
+- Deployment executes script as main container command: `command: ["/bin/sh", "/scripts/check-websites.sh"]`
+- Helm template variables injected into script via `{{ .Values.* }}` for dynamic configuration
+- Useful for custom monitoring, batch jobs, or any shell-based automation
 
 ## Development Workflows
 
@@ -114,7 +124,7 @@ Tasks automatically:
 
 **Task inputs defined in `.vscode/tasks.json`:**
 - `chartName`: Hardcoded list of all charts (must match directory names in `charts/`)
-  - Current list: `["homebridge", "iperf3", "rtl-sdr", "hdhomerun-app-proxy", "auto-mount", "hdhomerun-tuner-proxy", "prometheus", "xcarve", "scrypted", "firefox-remote"]`
+  - Current list: `["homebridge", "iperf3", "rtl-sdr", "hdhomerun-app-proxy", "auto-mount", "hdhomerun-tuner-proxy", "prometheus", "xcarve", "scrypted", "firefox-remote", "website-monitor", "octoprint"]`
 - `releaseName`: Custom release name (user input)
 - `namespace`: Target namespace (default: "ourplan")
 - `helmExtraArgs`: Additional flags (e.g., `--set key=value`)
@@ -327,7 +337,7 @@ Always include `app: <name>` in deployment labels for compatibility.
 
 ## Release Process
 
-Charts are auto-packaged and published to GitHub Pages via [chart-releaser-action](./.github/workflows/release-charts.yaml) on push to `main` branch (when `charts/**` paths change). Bump `version` in `Chart.yaml` to trigger new release.
+Charts are auto-packaged and published to GitHub Pages via chart-releaser-action on push to `main` branch (when `charts/**` paths change). Bump `version` in `Chart.yaml` to trigger new release.
 
 **Release workflow:**
 1. Edit chart files under `charts/<chart-name>/`

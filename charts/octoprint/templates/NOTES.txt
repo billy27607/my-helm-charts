@@ -1,0 +1,51 @@
+1. Get the application URL by running these commands:
+{{- if .Values.octoprint.ingress.enabled }}
+{{- range $host := .Values.octoprint.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.octoprint.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else if contains "NodePort" .Values.octoprint.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "octoprint.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.octoprint.service.type }}
+     NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+           You can watch the status of by running 'kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "octoprint.fullname" . }}'
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "octoprint.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo http://$SERVICE_IP:{{ .Values.octoprint.service.port }}
+{{- else if contains "ClusterIP" .Values.octoprint.service.type }}
+  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "octoprint.name" . }},app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=octoprint" -o jsonpath="{.items[0].metadata.name}")
+  export CONTAINER_PORT=$(kubectl get pod --namespace {{ .Release.Namespace }} $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
+  echo "Visit http://127.0.0.1:8080 to use your application"
+  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8080:$CONTAINER_PORT
+{{- end }}
+
+OctoPrint is starting up. This may take a few minutes.
+
+To check the status:
+  kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }}"
+
+To view logs:
+  kubectl logs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=octoprint" -f
+
+{{- if .Values.mjpgStreamer.enabled }}
+
+Webcam Stream (MJPG-Streamer):
+  export STREAM_POD=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/component=mjpg-streamer" -o jsonpath="{.items[0].metadata.name}")
+  kubectl --namespace {{ .Release.Namespace }} port-forward $STREAM_POD 8081:8080
+  
+  Then open http://127.0.0.1:8081/?action=stream in your browser
+{{- end }}
+
+Serial Device:
+The following serial device is mounted:
+  - {{ .Values.octoprint.serialPort }}
+
+Make sure this device exists on your node and is accessible.
+
+{{- if not .Values.octoprint.persistence.enabled }}
+
+WARNING: Persistence is disabled. All data will be lost when the pod restarts.
+Enable persistence by setting octoprint.persistence.enabled=true
+{{- end }}

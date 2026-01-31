@@ -1,0 +1,93 @@
+{{- if .Values.octoprint.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "octoprint.fullname" . }}
+  labels:
+    {{- include "octoprint.octoprint.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "octoprint.octoprint.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "octoprint.octoprint.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.octoprint.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      {{- if .Values.octoprint.securityContext.privileged }}
+      securityContext:
+        fsGroup: 1000
+      {{- end }}
+      containers:
+      - name: octoprint
+        image: "{{ .Values.octoprint.image.repository }}:{{ .Values.octoprint.image.tag }}"
+        imagePullPolicy: {{ .Values.octoprint.image.pullPolicy }}
+        {{- if not .Values.octoprint.hostNetwork }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.octoprint.service.targetPort }}
+          protocol: TCP
+        {{- end }}
+        env:
+        {{- range .Values.octoprint.env.extra }}
+        - name: {{ .name }}
+          value: {{ .value | quote }}
+        {{- end }}
+        volumeMounts:
+        - name: data
+          mountPath: /octoprint
+        - name: serial
+          mountPath: {{ .Values.octoprint.serialPort }}
+        {{- if .Values.octoprint.securityContext.privileged }}
+        securityContext:
+          privileged: true
+        {{- end }}
+        resources:
+          {{- toYaml .Values.octoprint.resources | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /
+            port: {{ .Values.octoprint.service.targetPort }}
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 6
+        readinessProbe:
+          httpGet:
+            path: /
+            port: {{ .Values.octoprint.service.targetPort }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: data
+        {{- if .Values.octoprint.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ include "octoprint.fullname" . }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: serial
+        hostPath:
+          path: {{ .Values.octoprint.serialPort }}
+      {{- with .Values.octoprint.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.octoprint.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.octoprint.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

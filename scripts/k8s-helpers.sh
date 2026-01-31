@@ -28,59 +28,77 @@ wait_for_service_ready() {
     local release_name="$1"
     local namespace="$2"
     local timeout="${3:-120}"  # Default 120 seconds timeout
-    local ready_pattern="${4:-service ready|Starting server|Started}"  # Default patterns
+    local ready_pattern="${4:-}"  # Optional ready pattern
     
     echo -e "\n${BLUE}=== Waiting for service to be ready ===${NC}"
-    echo -e "${YELLOW}Checking logs for: $ready_pattern${NC}"
     
     local elapsed=0
-    local pod_name=""
     
-    # First wait for pod to exist
-    while [[ $elapsed -lt $timeout ]]; do
-        pod_name=$(kubectl get pods -n "$namespace" -l "app.kubernetes.io/instance=$release_name" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-        if [[ -n "$pod_name" ]]; then
-            break
-        fi
+    # Get all pods for this release
+    local pod_names=$(kubectl get pods -n "$namespace" -l "app.kubernetes.io/instance=$release_name" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
+    
+    # First wait for at least one pod to exist
+    while [[ $elapsed -lt $timeout && -z "$pod_names" ]]; do
         sleep 2
         elapsed=$((elapsed + 2))
+        pod_names=$(kubectl get pods -n "$namespace" -l "app.kubernetes.io/instance=$release_name" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
     done
     
-    if [[ -z "$pod_name" ]]; then
-        echo -e "${YELLOW}Warning: Could not find pod for release $release_name${NC}"
+    if [[ -z "$pod_names" ]]; then
+        echo -e "${YELLOW}Warning: Could not find pods for release $release_name${NC}"
         return 0  # Don't fail, just warn
     fi
     
-    echo -e "${YELLOW}Waiting for pod $pod_name to be ready...${NC}"
-    
-    # Wait for pod to be Running
-    while [[ $elapsed -lt $timeout ]]; do
-        local pod_status=$(kubectl get pod "$pod_name" -n "$namespace" -o jsonpath='{.status.phase}' 2>/dev/null)
-        if [[ "$pod_status" == "Running" ]]; then
-            break
-        fi
-        sleep 2
-        elapsed=$((elapsed + 2))
-    done
-    
-    # Now check logs for service ready message
-    echo -e "${YELLOW}Checking service logs for readiness...${NC}"
-    while [[ $elapsed -lt $timeout ]]; do
-        if kubectl logs "$pod_name" -n "$namespace" 2>/dev/null | grep -qiE "$ready_pattern"; then
-            echo -e "${GREEN}✓ Service is ready!${NC}"
-            return 0
-        fi
-        sleep 3
-        elapsed=$((elapsed + 3))
-        # Show a progress indicator every 15 seconds
-        if [[ $((elapsed % 15)) -eq 0 ]]; then
-            echo -e "${YELLOW}  Still waiting... ($elapsed seconds elapsed)${NC}"
+    # Wait for all pods to be Running and Ready
+    echo -e "${YELLOW}Waiting for pods to be ready: $pod_names${NC}"
+    local all_ready=false
+    while [[ $elapsed -lt $timeout && "$all_ready" == "false" ]]; do
+        all_ready=true
+        for pod_name in $pod_names; do
+            local pod_ready=$(kubectl get pod "$pod_name" -n "$namespace" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
+            if [[ "$pod_ready" != "True" ]]; then
+                all_ready=false
+                break
+            fi
+        done
+        if [[ "$all_ready" == "false" ]]; then
+            sleep 2
+            elapsed=$((elapsed + 2))
+            # Show progress every 10 seconds
+            if [[ $((elapsed % 10)) -eq 0 ]]; then
+                echo -e "${YELLOW}  Still waiting... ($elapsed seconds elapsed)${NC}"
+            fi
         fi
     done
     
-    echo -e "${YELLOW}Warning: Timeout waiting for service ready message after ${timeout}s${NC}"
-    echo -e "${YELLOW}Service may still be initializing. Check logs with: kubectl logs $pod_name -n $namespace${NC}"
-    return 0  # Don't fail the deployment, just warn
+    if [[ "$all_ready" == "false" ]]; then
+        echo -e "${YELLOW}Warning: Not all pods are ready after ${elapsed}s${NC}"
+        kubectl get pods -n "$namespace" -l "app.kubernetes.io/instance=$release_name"
+        return 0
+    fi
+    
+    echo -e "${GREEN}✓ All pods are ready!${NC}"
+    
+    # Optional: Check logs for specific ready pattern if provided
+    if [[ -n "$ready_pattern" ]]; then
+        local first_pod=$(echo $pod_names | awk '{print $1}')
+        echo -e "${YELLOW}Checking logs for: $ready_pattern${NC}"
+        local log_found=false
+        while [[ $elapsed -lt $timeout ]]; do
+            if kubectl logs "$first_pod" -n "$namespace" 2>/dev/null | grep -qiE "$ready_pattern"; then
+                echo -e "${GREEN}✓ Service is ready!${NC}"
+                log_found=true
+                break
+            fi
+            sleep 2
+            elapsed=$((elapsed + 2))
+        done
+        if [[ "$log_found" == "false" ]]; then
+            echo -e "${YELLOW}Note: Ready pattern not found in logs, but pods are healthy${NC}"
+        fi
+    fi
+    
+    return 0
 }
 
 # Get the command
@@ -89,7 +107,7 @@ COMMAND="${1:-}"
 if [[ -z "$COMMAND" ]]; then
     echo -e "${RED}Usage: $0 <command> [args...]${NC}"
     echo "kubectl commands: status, logs, events, resources (require YAML file)"
-    echo "Helm commands: helm-install, helm-upgrade, helm-status, helm-logs, helm-uninstall"
+    echo "Helm commands: helm-install, helm-upgrade, helm-status, helm-logs, helm-restart, helm-uninstall"
     exit 1
 fi
 
@@ -265,7 +283,7 @@ case "$COMMAND" in
         done
         
         # Wait for service to be ready
-        wait_for_service_ready "$RELEASE_NAME" "$NAMESPACE" 120 "service ready|Starting server|Started|Listening on"
+        wait_for_service_ready "$RELEASE_NAME" "$NAMESPACE" 120
         
         echo -e "\n${BLUE}=== Release Status ===${NC}"
         # Extract namespace from EXTRA_ARGS for status command
@@ -361,7 +379,7 @@ case "$COMMAND" in
         done
         
         # Wait for service to be ready
-        wait_for_service_ready "$RELEASE_NAME" "$NAMESPACE" 120 "service ready|Starting server|Started|Listening on"
+        wait_for_service_ready "$RELEASE_NAME" "$NAMESPACE" 120
         
         echo -e "\n${BLUE}=== Release Status ===${NC}"
         # Extract namespace from EXTRA_ARGS for status command
