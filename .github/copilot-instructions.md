@@ -79,6 +79,8 @@ This repository contains three types of charts:
 - Uses ConfigMap with embedded shell script (`check-websites.sh`) mounted at `/scripts`
 - Deployment executes script as main container command: `command: ["/bin/sh", "/scripts/check-websites.sh"]`
 - Helm template variables injected into script via `{{ .Values.* }}` for dynamic configuration
+- Scripts can iterate over values: `{{- range .Values.monitors }}...{{- end }}`
+- Supports conditional logic in scripts: `{{- if .enabled }}...{{- end }}`
 - Useful for custom monitoring, batch jobs, or any shell-based automation
 
 ## Development Workflows
@@ -242,6 +244,27 @@ persistentVolumeClaim:
 
 ## Troubleshooting Patterns
 
+### Deployment Timeouts
+**Problem**: "Error: INSTALLATION FAILED: resource not ready... context deadline exceeded"  
+**Root causes:**
+- Image pull delays (large images like Scrypted can take 2-5 minutes)
+- Container startup time (initialization processes, database migrations)
+- Health checks failing (incorrect liveness/readiness probes)
+- Resource constraints (insufficient CPU/memory)
+
+**Solutions:**
+1. **Increase timeout**: Default is 120s, extend in `k8s-helpers.sh` `wait_for_service_ready()` function
+2. **Check pod status**: `kubectl get pods -n <namespace>` to see actual pod state
+3. **Review logs during startup**: `scripts/k8s-helpers.sh helm-logs <release> --namespace <namespace>`
+4. **Check events**: `kubectl get events -n <namespace> --sort-by='.lastTimestamp' | tail -20`
+5. **Monitor image pull**: `kubectl describe pod <pod-name> -n <namespace>` shows ImagePullBackOff or pulling progress
+
+**Wait behavior in k8s-helpers.sh:**
+- `helm-install` and `helm-upgrade` use `--wait` flag (Helm's built-in timeout)
+- Post-install, `wait_for_service_ready()` waits up to 120s for pod Ready status
+- Polls every 2 seconds, shows progress every 10 seconds
+- Gracefully degrades to warnings instead of failing the install
+
 ### hostNetwork Conflicts
 **Problem**: "port 10443 already in use" when multiple releases use same chart  
 **Solution**: The `helm-upgrade` command auto-detects and uninstalls conflicting releases. Always use release names distinct from chart names.
@@ -343,7 +366,7 @@ Charts are auto-packaged and published to GitHub Pages via chart-releaser-action
 1. Edit chart files under `charts/<chart-name>/`
 2. Bump `version` in `Chart.yaml` (semver required)
 3. Commit and push to `main` branch
-4. GitHub Action runs chart-releaser:
+4. GitHub Action (`.github/workflows/release-charts.yaml`) runs chart-releaser:
    - Packages charts using `helm package`
    - Creates GitHub releases with chart archives
    - Updates `index.yaml` on `gh-pages` branch
@@ -353,3 +376,11 @@ Charts are auto-packaged and published to GitHub Pages via chart-releaser-action
 - `charts_dir: charts` - location of chart sources
 - `skip_existing: true` - won't re-release same version
 - Auto-creates `gh-pages` branch on first release
+- Workflow triggered by changes to `charts/**` paths only
+
+**Adding charts to Helm:**
+```bash
+helm repo add my-charts https://billy27607.github.io/my-helm-charts
+helm repo update
+helm search repo my-charts/
+```

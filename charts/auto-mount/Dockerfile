@@ -12,6 +12,7 @@ RUN echo "deb http://deb.debian.org/debian bookworm main contrib" > /etc/apt/sou
 # Install all system packages in one layer
 RUN apt-get update && apt-get install -y --no-install-recommends \
     samba \
+    samba-vfs-modules \
     python3 \
     python3-pip \
     python3-venv \

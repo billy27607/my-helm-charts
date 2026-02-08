@@ -45,7 +45,7 @@ data:
        force user = root
        create mask = 0664
        directory mask = 0775
-       available = no
+       available = yes
     
     [optical]
        path = {{ .Values.opticalPath }}
@@ -57,7 +57,7 @@ data:
        force user = root
        create mask = 0664
        directory mask = 0775
-       available = no
+       available = yes
     
     [cd-rips]
        path = /raid5/cd-rips

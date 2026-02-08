@@ -13,8 +13,8 @@ devices:
   dri: false          # /dev/dri for hardware video decoding
   kfd: false          # /dev/kfd for AMD GPU
   # Serial/character devices (zwave, zigbee, etc.)
-  serial:
-    - /dev/ttyACM0    # zwave usb serial
+  serial: []
+  # - /dev/ttyACM0    # zwave usb serial
   # Additional devices (coral PCI, etc.)
   extra: []
   # - /dev/apex_0     # coral PCI
