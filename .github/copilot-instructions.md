@@ -59,11 +59,12 @@ volumes:
 ### Chart Categories
 This repository contains three types of charts:
 
-**Single-Service Charts** (most charts): scrypted, iperf3, rtl-sdr, hdhomerun-app-proxy, hdhomerun-tuner-proxy, auto-mount, firefox-remote, prometheus, website-monitor
+**Single-Service Charts** (most charts): scrypted, iperf3, rtl-sdr, hdhomerun-app-proxy, hdhomerun-tuner-proxy, auto-mount, firefox-remote, prometheus, website-monitor, mdns-reflector
 - One deployment per chart
 - Standard `_helpers.tpl` with `<chart>.name`, `<chart>.fullname`, `<chart>.labels`, `<chart>.selectorLabels`
 - Pattern examples:
   - website-monitor: monitoring with ConfigMap-based shell script injection
+  - mdns-reflector: selective mDNS/Bonjour reflection with Python-based service filtering
 
 **Multi-Component Charts**: homebridge (Homebridge + Mosquitto), xcarve (CNCjs + MJPG-Streamer), octoprint (OctoPrint + MJPG-Streamer)
 - Multiple deployments bundled in one chart
@@ -126,7 +127,7 @@ Tasks automatically:
 
 **Task inputs defined in `.vscode/tasks.json`:**
 - `chartName`: Hardcoded list of all charts (must match directory names in `charts/`)
-  - Current list: `["homebridge", "iperf3", "rtl-sdr", "hdhomerun-app-proxy", "auto-mount", "hdhomerun-tuner-proxy", "prometheus", "xcarve", "scrypted", "firefox-remote", "website-monitor", "octoprint"]`
+  - Current list: `["homebridge", "iperf3", "rtl-sdr", "hdhomerun-app-proxy", "auto-mount", "hdhomerun-tuner-proxy", "prometheus", "xcarve", "scrypted", "firefox-remote", "website-monitor", "octoprint", "mdns-reflector"]`
 - `releaseName`: Custom release name (user input)
 - `namespace`: Target namespace (default: "ourplan")
 - `helmExtraArgs`: Additional flags (e.g., `--set key=value`)

@@ -1,0 +1,106 @@
+image:
+  repository: debian
+  tag: "12-slim"
+  pullPolicy: IfNotPresent
+
+# Network configuration
+# CRITICAL: Must use hostNetwork for mDNS reflection across subnets
+hostNetwork: true
+dnsPolicy: ClusterFirstWithHostNet
+
+# Network interfaces to reflect between
+# Leave empty to auto-detect, or specify interfaces explicitly
+reflector:
+  # Automatically enable reflection between all network interfaces
+  # Set to false if you want to manually specify interfaces
+  autoDetect: true
+  
+  # Manually specify interfaces (only used if autoDetect is false)
+  # interfaces:
+  #   - eth0
+  #   - wg0
+
+# Service filtering - only reflect these service types
+# This prevents conflicts with UniFi devices and other mDNS noise
+allowedServices:
+  # File sharing
+  - _smb._tcp              # SMB/CIFS file shares
+  - _afpovertcp._tcp       # AFP file shares
+  - _nfs._tcp              # NFS shares
+  - _ftp._tcp              # FTP servers
+  
+  # Printers
+  - _printer._tcp          # Generic printers
+  - _ipp._tcp              # Internet Printing Protocol
+  - _ipps._tcp             # IPP over SSL
+  - _pdl-datastream._tcp   # Print data stream
+  - _scanner._tcp          # Network scanners
+  
+  # Media servers
+  - _airplay._tcp          # AirPlay
+  - _raop._tcp             # Remote Audio Output Protocol (AirPlay)
+  - _touch-able._tcp       # iTunes sharing
+  - _daap._tcp             # Digital Audio Access Protocol
+  - _home-sharing._tcp     # iTunes Home Sharing
+  
+  # Time Machine
+  - _adisk._tcp            # Apple Disk (Time Machine)
+  - _timemachine._tcp      # Time Machine
+  
+  # Custom services (add your own)
+  # - _http._tcp
+  # - _https._tcp
+
+# Services to explicitly block (even if in allowedServices)
+# Useful for blocking specific device types
+blockedServices:
+  - _ubnt._tcp             # UniFi devices
+  - _ubnt-discover._tcp    # UniFi discovery
+  - _airkan._tcp           # UniFi Airkan
+  - _spotify-connect._tcp  # Spotify Connect (can cause issues)
+  - _googlecast._tcp       # Chromecast (can cause issues)
+
+# Avahi daemon configuration
+avahi:
+  # Domain name for local network
+  domainName: local
+  
+  # Enable/disable IPv6
+  useIPv6: false
+  
+  # Allow interfaces to be specified in config
+  allowInterfaces: ""
+  
+  # Deny interfaces (comma-separated)
+  denyInterfaces: "lo"
+  
+  # Publish workstation
+  publishWorkstation: false
+  
+  # Enable reflector (must be true)
+  enableReflector: true
+  
+  # Reflect only if TTL > 0 (prevents loops)
+  reflectIPv: true
+
+# Resource limits
+resources:
+  limits:
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Security context - needs NET_ADMIN for mDNS
+securityContext:
+  capabilities:
+    add:
+      - NET_ADMIN
+      - NET_RAW
+
+# Node selector (deploy to specific nodes if needed)
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

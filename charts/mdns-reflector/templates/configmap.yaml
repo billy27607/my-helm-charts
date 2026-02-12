@@ -1,0 +1,234 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mdns-reflector.fullname" . }}-config
+  labels:
+    {{- include "mdns-reflector.labels" . | nindent 4 }}
+data:
+  avahi-daemon.conf: |
+    [server]
+    host-name={{ include "mdns-reflector.fullname" . }}
+    domain-name={{ .Values.avahi.domainName }}
+    use-ipv4=yes
+    use-ipv6={{ if .Values.avahi.useIPv6 }}yes{{ else }}no{{ end }}
+    {{- if .Values.avahi.allowInterfaces }}
+    allow-interfaces={{ .Values.avahi.allowInterfaces }}
+    {{- end }}
+    {{- if .Values.avahi.denyInterfaces }}
+    deny-interfaces={{ .Values.avahi.denyInterfaces }}
+    {{- end }}
+    ratelimit-interval-usec=1000000
+    ratelimit-burst=1000
+    
+    [wide-area]
+    enable-wide-area=no
+    
+    [publish]
+    publish-addresses=yes
+    publish-hinfo=no
+    publish-workstation={{ if .Values.avahi.publishWorkstation }}yes{{ else }}no{{ end }}
+    publish-domain=no
+    
+    [reflector]
+    enable-reflector={{ if .Values.avahi.enableReflector }}yes{{ else }}no{{ end }}
+    reflect-ipv={{ if .Values.avahi.reflectIPv }}yes{{ else }}no{{ end }}
+    reflect-filters=yes
+    
+    [rlimits]
+    rlimit-core=0
+    rlimit-data=4194304
+    rlimit-fsize=0
+    rlimit-nofile=768
+    rlimit-stack=4194304
+    rlimit-nproc=3
+
+  service-filter.py: |
+    #!/usr/bin/env python3
+    """
+    Avahi service filter script - blocks unwanted mDNS services
+    This runs as an Avahi browsing client and tracks what should be filtered
+    """
+    import sys
+    import dbus
+    import dbus.mainloop.glib
+    from gi.repository import GLib
+    import signal
+    
+    # Allowed service types (from values.yaml)
+    ALLOWED_SERVICES = [
+    {{- range .Values.allowedServices }}
+      "{{ . }}",
+    {{- end }}
+    ]
+    
+    # Explicitly blocked services (from values.yaml)
+    BLOCKED_SERVICES = [
+    {{- range .Values.blockedServices }}
+      "{{ . }}",
+    {{- end }}
+    ]
+    
+    def should_filter_service(service_type):
+        """Return True if service should be blocked (not reflected)"""
+        # Block if in blocked list
+        if service_type in BLOCKED_SERVICES:
+            print(f"[BLOCK] Blocking service: {service_type} (in blocklist)", file=sys.stderr)
+            return True
+        
+        # Allow if no allow list specified (allow all)
+        if not ALLOWED_SERVICES:
+            return False
+        
+        # Block if not in allow list
+        if service_type not in ALLOWED_SERVICES:
+            print(f"[FILTER] Filtering service: {service_type} (not in allowlist)", file=sys.stderr)
+            return True
+        
+        return False
+    
+    def service_resolved(interface, protocol, name, stype, domain, host, aprotocol, address, port, txt, flags):
+        """Called when a service is resolved"""
+        if should_filter_service(stype):
+            # Log filtered services
+            print(f"[FILTERED] {name} ({stype}) from {address}:{port}", file=sys.stderr)
+        else:
+            print(f"[ALLOWED] {name} ({stype}) from {address}:{port}", file=sys.stderr)
+    
+    def service_found(interface, protocol, name, stype, domain, flags):
+        """Called when a new service is found"""
+        if should_filter_service(stype):
+            return  # Don't resolve filtered services
+        
+        print(f"[DISCOVERED] {name} ({stype}) in domain {domain}", file=sys.stderr)
+        
+        try:
+            server.ResolveService(interface, protocol, name, stype, domain, 
+                                 dbus.Int32(-1), dbus.UInt32(0),
+                                 reply_handler=service_resolved,
+                                 error_handler=lambda e: print(f"[ERROR] Resolve failed: {e}", file=sys.stderr))
+        except Exception as e:
+            print(f"[ERROR] Exception resolving service: {e}", file=sys.stderr)
+    
+    def signal_handler(sig, frame):
+        """Handle shutdown signals"""
+        print("\n[INFO] Shutting down service filter...", file=sys.stderr)
+        loop.quit()
+    
+    if __name__ == "__main__":
+        print("[INFO] Starting mDNS service filter...", file=sys.stderr)
+        print(f"[INFO] Allowed services: {', '.join(ALLOWED_SERVICES) if ALLOWED_SERVICES else 'ALL'}", file=sys.stderr)
+        print(f"[INFO] Blocked services: {', '.join(BLOCKED_SERVICES) if BLOCKED_SERVICES else 'NONE'}", file=sys.stderr)
+        
+        # Set up D-Bus
+        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+        bus = dbus.SystemBus()
+        
+        try:
+            server = dbus.Interface(bus.get_object('org.freedesktop.Avahi', '/'),
+                                   'org.freedesktop.Avahi.Server')
+            
+            # Browse for all service types to log what's being filtered
+            sbrowser = dbus.Interface(bus.get_object('org.freedesktop.Avahi', 
+                                     server.ServiceBrowserNew(-1, -1, '_services._dns-sd._udp', 'local', dbus.UInt32(0))),
+                                     'org.freedesktop.Avahi.ServiceBrowser')
+            
+            sbrowser.connect_to_signal('ItemNew', service_found)
+            
+        except dbus.DBusException as e:
+            print(f"[ERROR] Failed to connect to Avahi: {e}", file=sys.stderr)
+            sys.exit(1)
+        
+        # Set up signal handlers
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        
+        # Run main loop
+        loop = GLib.MainLoop()
+        print("[INFO] Service filter is running. Press Ctrl+C to stop.", file=sys.stderr)
+        
+        try:
+            loop.run()
+        except KeyboardInterrupt:
+            pass
+        
+        print("[INFO] Service filter stopped.", file=sys.stderr)
+
+  entrypoint.sh: |
+    #!/bin/bash
+    set -e
+    
+    echo "[INFO] Starting mDNS Reflector..."
+    
+    # Install required packages
+    apt-get update -qq
+    apt-get install -y --no-install-recommends \
+      avahi-daemon \
+      avahi-utils \
+      libnss-mdns \
+      python3 \
+      python3-gi \
+      python3-dbus \
+      dbus \
+      iproute2 \
+      procps \
+      > /dev/null 2>&1
+    
+    echo "[INFO] Packages installed"
+    
+    # Create runtime directories
+    mkdir -p /var/run/dbus /var/run/avahi-daemon
+    
+    # Copy config files
+    cp /config/avahi-daemon.conf /etc/avahi/avahi-daemon.conf
+    
+    # Auto-detect network interfaces if enabled
+    {{- if .Values.reflector.autoDetect }}
+    echo "[INFO] Auto-detecting network interfaces..."
+    INTERFACES=$(ip -o link show | awk -F': ' '{print $2}' | grep -v '^lo$\|^docker\|^veth\|^br-' | tr '\n' ',' | sed 's/,$//')
+    if [ -n "$INTERFACES" ]; then
+      echo "[INFO] Found interfaces: $INTERFACES"
+      # Update Avahi config to explicitly allow these interfaces
+      sed -i "s/#allow-interfaces=.*/allow-interfaces=$INTERFACES/" /etc/avahi/avahi-daemon.conf
+    else
+      echo "[WARNING] No suitable interfaces found, using defaults"
+    fi
+    {{- else if .Values.reflector.interfaces }}
+    # Use manually specified interfaces
+    INTERFACES="{{ join "," .Values.reflector.interfaces }}"
+    echo "[INFO] Using configured interfaces: $INTERFACES"
+    sed -i "s/#allow-interfaces=.*/allow-interfaces=$INTERFACES/" /etc/avahi/avahi-daemon.conf
+    {{- end }}
+    
+    # Start D-Bus
+    echo "[INFO] Starting D-Bus..."
+    dbus-daemon --system --fork
+    
+    # Start Avahi daemon
+    echo "[INFO] Starting Avahi daemon with reflector enabled..."
+    avahi-daemon --no-chroot -D
+    
+    # Wait for Avahi to start
+    sleep 2
+    
+    # Start service filter in background
+    echo "[INFO] Starting service filter..."
+    python3 /config/service-filter.py &
+    FILTER_PID=$!
+    
+    # Monitor and display reflected services
+    echo "[INFO] mDNS Reflector is running"
+    echo "[INFO] Service filter PID: $FILTER_PID"
+    echo "[INFO] Reflecting mDNS between network interfaces..."
+    
+    # Keep container running and show avahi browser output
+    avahi-browse -a -t -r -p 2>&1 | while IFS= read -r line; do
+      # Parse and display in a readable format
+      case "$line" in
+        =*)
+          echo "[AVAHI] $line"
+          ;;
+      esac
+    done &
+    
+    # Wait for processes
+    wait $FILTER_PID

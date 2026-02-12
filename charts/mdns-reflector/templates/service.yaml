@@ -1,0 +1,17 @@
+{{- if not .Values.hostNetwork }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mdns-reflector.fullname" . }}
+  labels:
+    {{- include "mdns-reflector.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5353
+      targetPort: 5353
+      protocol: UDP
+      name: mdns
+  selector:
+    {{- include "mdns-reflector.selectorLabels" . | nindent 4 }}
+{{- end }}
