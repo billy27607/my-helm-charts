@@ -153,6 +153,193 @@ data:
         
         print("[INFO] Service filter stopped.", file=sys.stderr)
 
+  unicast-forwarder.py: |
+    #!/usr/bin/env python3
+    """
+    mDNS Unicast Forwarder - Forward mDNS across VPN/WAN links
+    Listens for local mDNS multicast, forwards to peers as unicast,
+    receives unicast from peers and re-announces as local mDNS
+    """
+    import socket
+    import struct
+    import sys
+    import threading
+    import time
+    import select
+    from typing import Set, Tuple
+    
+    # Configuration from Helm values
+    LISTEN_PORT = {{ .Values.unicast.port }}
+    PEERS = [
+    {{- range .Values.unicast.peers }}
+      "{{ . }}",
+    {{- end }}
+    ]
+    TTL = {{ .Values.unicast.ttl }}
+    
+    # Allowed services (from values.yaml)
+    ALLOWED_SERVICES = set([
+    {{- range .Values.allowedServices }}
+      "{{ . }}",
+    {{- end }}
+    ])
+    
+    BLOCKED_SERVICES = set([
+    {{- range .Values.blockedServices }}
+      "{{ . }}",
+    {{- end }}
+    ])
+    
+    MDNS_ADDR = '224.0.0.251'
+    MDNS_PORT = 5353
+    
+    # Cache to prevent forwarding loops
+    seen_packets: Set[Tuple[bytes, float]] = set()
+    CACHE_TIMEOUT = 5  # seconds
+    
+    def clean_cache():
+        """Remove old entries from packet cache"""
+        current_time = time.time()
+        global seen_packets
+        seen_packets = {(pkt, ts) for pkt, ts in seen_packets if current_time - ts < CACHE_TIMEOUT}
+    
+    def should_forward_service(data: bytes) -> bool:
+        """Check if packet contains a service we should forward"""
+        try:
+            # Simple check - look for service types in packet
+            data_str = data.decode('utf-8', errors='ignore').lower()
+            
+            # Check if any blocked service is in the packet
+            for blocked in BLOCKED_SERVICES:
+                if blocked.lower() in data_str:
+                    return False
+            
+            # If no allowed services specified, forward all
+            if not ALLOWED_SERVICES:
+                return True
+            
+            # Check if any allowed service is in the packet
+            for allowed in ALLOWED_SERVICES:
+                if allowed.lower() in data_str:
+                    return True
+            
+            return False
+        except:
+            return False
+    
+    def multicast_listener(sock_unicast):
+        """Listen for local mDNS multicast and forward to peers"""
+        print("[UNICAST] Starting multicast listener...", file=sys.stderr)
+        
+        # Create multicast socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(('', MDNS_PORT))
+        
+        # Join multicast group
+        mreq = struct.pack('4sL', socket.inet_aton(MDNS_ADDR), socket.INADDR_ANY)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        
+        print(f"[UNICAST] Listening for mDNS on {MDNS_ADDR}:{MDNS_PORT}", file=sys.stderr)
+        print(f"[UNICAST] Will forward to peers: {PEERS}", file=sys.stderr)
+        
+        while True:
+            try:
+                data, addr = sock.recvfrom(9000)
+                
+                # Skip if no peers configured
+                if not PEERS:
+                    continue
+                
+                # Check cache to prevent loops
+                packet_hash = (data[:100], time.time())  # Use first 100 bytes as identifier
+                if any(p[0] == packet_hash[0] for p in seen_packets):
+                    continue
+                
+                seen_packets.add(packet_hash)
+                clean_cache()
+                
+                # Check if we should forward this service
+                if not should_forward_service(data):
+                    continue
+                
+                # Forward to all peers
+                forwarded = 0
+                for peer in PEERS:
+                    try:
+                        peer_host, peer_port = peer.split(':')
+                        peer_port = int(peer_port)
+                        sock_unicast.sendto(data, (peer_host, peer_port))
+                        forwarded += 1
+                    except Exception as e:
+                        print(f"[UNICAST] Error forwarding to {peer}: {e}", file=sys.stderr)
+                
+                if forwarded > 0:
+                    print(f"[UNICAST-TX] Forwarded {len(data)} bytes to {forwarded} peer(s)", file=sys.stderr)
+                    
+            except Exception as e:
+                print(f"[UNICAST] Multicast listener error: {e}", file=sys.stderr)
+                time.sleep(1)
+    
+    def unicast_listener():
+        """Listen for unicast from peers and re-announce as mDNS"""
+        print(f"[UNICAST] Starting unicast listener on port {LISTEN_PORT}...", file=sys.stderr)
+        
+        # Create unicast listening socket
+        sock_listen = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock_listen.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock_listen.bind(('', LISTEN_PORT))
+        
+        # Create mDNS multicast socket for sending
+        sock_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock_send.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
+        
+        print(f"[UNICAST] Ready to receive and re-announce mDNS", file=sys.stderr)
+        
+        while True:
+            try:
+                data, addr = sock_listen.recvfrom(9000)
+                
+                # Check cache to prevent loops
+                packet_hash = (data[:100], time.time())
+                if any(p[0] == packet_hash[0] for p in seen_packets):
+                    continue
+                
+                seen_packets.add(packet_hash)
+                clean_cache()
+                
+                # Check if we should forward this service
+                if not should_forward_service(data):
+                    continue
+                
+                # Re-announce as mDNS multicast
+                sock_send.sendto(data, (MDNS_ADDR, MDNS_PORT))
+                print(f"[UNICAST-RX] Received {len(data)} bytes from {addr[0]}, re-announced as mDNS", file=sys.stderr)
+                
+            except Exception as e:
+                print(f"[UNICAST] Unicast listener error: {e}", file=sys.stderr)
+                time.sleep(1)
+    
+    if __name__ == "__main__":
+        print("[UNICAST] Starting mDNS Unicast Forwarder...", file=sys.stderr)
+        print(f"[UNICAST] Unicast listen port: {LISTEN_PORT}", file=sys.stderr)
+        print(f"[UNICAST] Configured peers: {len(PEERS)}", file=sys.stderr)
+        print(f"[UNICAST] Allowed services: {len(ALLOWED_SERVICES)}", file=sys.stderr)
+        
+        # Create shared unicast socket for sending
+        sock_unicast = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        
+        # Start multicast listener in a thread
+        multicast_thread = threading.Thread(target=multicast_listener, args=(sock_unicast,), daemon=True)
+        multicast_thread.start()
+        
+        # Run unicast listener in main thread
+        try:
+            unicast_listener()
+        except KeyboardInterrupt:
+            print("\n[UNICAST] Shutting down...", file=sys.stderr)
+            sys.exit(0)
+
   entrypoint.sh: |
     #!/bin/bash
     set -e
@@ -215,9 +402,20 @@ data:
     python3 /config/service-filter.py &
     FILTER_PID=$!
     
+    {{- if .Values.unicast.enabled }}
+    # Start unicast forwarder for cross-site mDNS
+    echo "[INFO] Starting unicast forwarder (cross-site mode)..."
+    python3 /config/unicast-forwarder.py &
+    UNICAST_PID=$!
+    echo "[INFO] Unicast forwarder PID: $UNICAST_PID"
+    {{- end }}
+    
     # Monitor and display reflected services
     echo "[INFO] mDNS Reflector is running"
     echo "[INFO] Service filter PID: $FILTER_PID"
+    {{- if .Values.unicast.enabled }}
+    echo "[INFO] Cross-site forwarding enabled on port {{ .Values.unicast.port }}"
+    {{- end }}
     echo "[INFO] Reflecting mDNS between network interfaces..."
     
     # Keep container running and show avahi browser output

@@ -1,11 +1,12 @@
 # mDNS Reflector
 
-Selective mDNS/Bonjour reflector for multi-site networks with service filtering. Perfect for reflecting services like NAS, printers, and Time Machine across VPN-connected sites while blocking conflicting announcements.
+Selective mDNS/Bonjour reflector for multi-site networks with service filtering and **unicast forwarding for cross-VPN mDNS**. Perfect for reflecting services like NAS, printers, and Time Machine across VPN-connected sites while blocking conflicting announcements.
 
 ## Features
 
 - **Selective Service Reflection**: Only reflect specific mDNS service types (NAS, printers, etc.)
 - **Service Blocking**: Explicitly block problematic services (UniFi devices, Chromecasts, etc.)
+- **Unicast Forwarding**: Forward mDNS across VPN/WAN links where multicast doesn't work
 - **Multi-Site Support**: Works across VPN connections (tested with UniFi Site Magic VPN)
 - **Auto-Detection**: Automatically detects network interfaces or manually specify them
 - **Real-time Filtering**: Python-based service filter monitors and logs reflected services
@@ -18,11 +19,92 @@ Ideal for environments with:
 - Need to access resources from remote site via Bonjour/mDNS
 - Conflicting mDNS announcements (UniFi devices, cameras, etc.)
 
+## How It Works
+
+### Local Reflection (Single Site)
+Uses Avahi's built-in reflector to bounce mDNS between network interfaces on the same subnet.
+
+### Cross-Site Forwarding (Multi-Site)
+Since mDNS uses link-local multicast that doesn't traverse VPNs, the unicast forwarder:
+1. Listens for mDNS multicast on the local network
+2. Forwards matching announcements as **unicast packets** to peer reflectors
+3. Peer receives unicast and re-announces as mDNS on their local network
+
 ## Quick Start
+
+### Cross-Site Deployment (Recommended)
+
+### Cross-Site Deployment (Recommended)
+
+For VPN-connected sites where you want mDNS to work across the WAN link:
+
+**Step 1: Get the pod IP from the remote site**
+```bash
+# On remote site cluster (192.168.101.0/24)
+kubectl config use-context remote-site
+helm install mdns-remote ./charts/mdns-reflector \
+  --namespace networking \
+  --create-namespace \
+  --set unicast.enabled=true
+
+# Get the node IP where the pod is running
+kubectl get pods -n networking -l app.kubernetes.io/name=mdns-reflector -o wide
+# Note the NODE column IP (e.g., 192.168.101.10)
+```
+
+**Step 2: Deploy on main site with peer configuration**
+Create `values-main.yaml`:
+```yaml
+unicast:
+  enabled: true
+  port: 5354
+  peers:
+    - "192.168.101.10:5354"  # Remote site node IP
+
+allowedServices:
+  - _smb._tcp
+  - _printer._tcp
+  - _ipp._tcp
+  - _adisk._tcp
+```
+
+Deploy:
+```bash
+kubectl config use-context main-site
+helm install mdns-main ./charts/mdns-reflector \
+  --namespace networking \
+  --create-namespace \
+  --values values-main.yaml
+```
+
+**Step 3: Configure remote site with main site peer**
+```bash
+# Get main site node IP
+kubectl config use-context main-site
+kubectl get pods -n networking -l app.kubernetes.io/name=mdns-reflector -o wide
+# Note the NODE IP (e.g., 192.168.100.25)
+
+# Update remote site with peer
+kubectl config use-context remote-site
+helm upgrade mdns-remote ./charts/mdns-reflector \
+  --namespace networking \
+  --set unicast.enabled=true \
+  --set unicast.peers={192.168.100.25:5354}
+```
+
+**Step 4: Verify cross-site forwarding**
+```bash
+# Check logs on main site
+kubectl logs -n networking -l app.kubernetes.io/name=mdns-reflector | grep UNICAST
+
+# You should see:
+# [UNICAST-TX] Forwarded 245 bytes to 1 peer(s)
+# [UNICAST-RX] Received 245 bytes from 192.168.101.10, re-announced as mDNS
+```
 
 ### Basic Installation (Main Site)
 
-Deploy on the main site (192.168.100.0/24) to reflect services to remote site:
+Deploy on the main site (192.168.100.0/24) to reflect services locally only:
 
 ```bash
 helm install mdns-reflector ./charts/mdns-reflector \

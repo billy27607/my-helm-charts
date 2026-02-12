@@ -20,6 +20,23 @@ reflector:
   #   - eth0
   #   - wg0
 
+# Unicast forwarding for cross-site mDNS reflection
+# This allows mDNS to work across VPN/WAN connections
+unicast:
+  # Enable unicast forwarding to remote sites
+  enabled: false
+  
+  # Listen port for receiving unicast mDNS from remote sites
+  port: 5354
+  
+  # Remote reflector addresses (IP:port) to forward announcements to
+  # For multi-site setups, add the IP of the reflector on each remote site
+  peers: []
+  #   - "192.168.101.10:5354"  # Remote site reflector IP
+  
+  # Time to live for forwarded announcements (seconds)
+  ttl: 3600
+
 # Service filtering - only reflect these service types
 # This prevents conflicts with UniFi devices and other mDNS noise
 allowedServices:
@@ -48,8 +65,8 @@ allowedServices:
   - _timemachine._tcp      # Time Machine
   
   # Custom services (add your own)
-  # - _http._tcp
-  # - _https._tcp
+  - _http._tcp
+  - _https._tcp
 
 # Services to explicitly block (even if in allowedServices)
 # Useful for blocking specific device types

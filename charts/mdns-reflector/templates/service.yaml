@@ -1,4 +1,4 @@
-{{- if not .Values.hostNetwork }}
+{{- if or (not .Values.hostNetwork) .Values.unicast.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -6,12 +6,20 @@ metadata:
   labels:
     {{- include "mdns-reflector.labels" . | nindent 4 }}
 spec:
-  type: ClusterIP
+  type: {{ if .Values.hostNetwork }}ClusterIP{{ else }}ClusterIP{{ end }}
   ports:
+    {{- if not .Values.hostNetwork }}
     - port: 5353
       targetPort: 5353
       protocol: UDP
       name: mdns
+    {{- end }}
+    {{- if .Values.unicast.enabled }}
+    - port: {{ .Values.unicast.port }}
+      targetPort: {{ .Values.unicast.port }}
+      protocol: UDP
+      name: unicast
+    {{- end }}
   selector:
     {{- include "mdns-reflector.selectorLabels" . | nindent 4 }}
 {{- end }}
