@@ -286,6 +286,17 @@ entries:
   mdns-reflector:
   - apiVersion: v2
     appVersion: "0.8"
+    created: "2026-02-12T17:04:01.605490058Z"
+    description: Selective mDNS/Bonjour reflector for multi-site networks with service
+      filtering and unicast forwarding
+    digest: d2a20a4cfcd1fa14cd4e06d6c31154d11458e09054b72c377f732756225ef666
+    name: mdns-reflector
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/mdns-reflector-0.2.0/mdns-reflector-0.2.0.tgz
+    version: 0.2.0
+  - apiVersion: v2
+    appVersion: "0.8"
     created: "2026-02-12T16:01:21.693952336Z"
     description: Selective mDNS/Bonjour reflector for multi-site networks with service
       filtering
@@ -378,4 +389,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.1.0/xcarve-0.1.0.tgz
     version: 0.1.0
-generated: "2026-02-12T16:01:21.694030562Z"
+generated: "2026-02-12T17:04:01.605565991Z"
