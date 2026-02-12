@@ -283,6 +283,18 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/iperf3-0.1.2/iperf3-0.1.2.tgz
     version: 0.1.2
+  mdns-reflector:
+  - apiVersion: v2
+    appVersion: "0.8"
+    created: "2026-02-12T16:01:21.693952336Z"
+    description: Selective mDNS/Bonjour reflector for multi-site networks with service
+      filtering
+    digest: 4f2c3dbd8602d106a80d85236e85d312b30dd251387ea1d1d4914ed1f95722c8
+    name: mdns-reflector
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/mdns-reflector-0.1.0/mdns-reflector-0.1.0.tgz
+    version: 0.1.0
   octoprint:
   - apiVersion: v2
     appVersion: 1.10.2
@@ -366,4 +378,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.1.0/xcarve-0.1.0.tgz
     version: 0.1.0
-generated: "2026-02-08T15:21:46.698725637Z"
+generated: "2026-02-12T16:01:21.694030562Z"
