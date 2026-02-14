@@ -155,6 +155,25 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/auto-mount-0.1.50/auto-mount-0.1.50.tgz
     version: 0.1.50
+  avahi-daemon:
+  - apiVersion: v2
+    appVersion: "0.8"
+    created: "2026-02-14T01:51:03.02828625Z"
+    description: Installs and manages Avahi daemon on host nodes for mDNS/Bonjour
+      discovery
+    digest: a318215624e386046246341534d4ce325761ce2dec56b34870ccd50f2d873a5b
+    keywords:
+    - mdns
+    - bonjour
+    - avahi
+    - service-discovery
+    maintainers:
+    - name: billy
+    name: avahi-daemon
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/avahi-daemon-0.1.0/avahi-daemon-0.1.0.tgz
+    version: 0.1.0
   firefox-remote:
   - apiVersion: v2
     appVersion: latest
@@ -286,6 +305,17 @@ entries:
   mdns-reflector:
   - apiVersion: v2
     appVersion: "0.8"
+    created: "2026-02-14T01:51:03.196616187Z"
+    description: Selective mDNS/Bonjour reflector for multi-site networks with service
+      filtering and unicast forwarding
+    digest: 75d2f6a328b688465b2c45dc143b1bdc9f6d9c3c010af05fd2e5a30fb496821b
+    name: mdns-reflector
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/mdns-reflector-0.3.4/mdns-reflector-0.3.4.tgz
+    version: 0.3.4
+  - apiVersion: v2
+    appVersion: "0.8"
     created: "2026-02-12T17:04:01.605490058Z"
     description: Selective mDNS/Bonjour reflector for multi-site networks with service
       filtering and unicast forwarding
@@ -389,4 +419,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.1.0/xcarve-0.1.0.tgz
     version: 0.1.0
-generated: "2026-02-12T17:04:01.605565991Z"
+generated: "2026-02-14T01:51:03.196711364Z"
