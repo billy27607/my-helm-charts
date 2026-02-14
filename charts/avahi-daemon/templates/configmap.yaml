@@ -1,0 +1,106 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "avahi-daemon.fullname" . }}-config
+  labels:
+    {{- include "avahi-daemon.labels" . | nindent 4 }}
+data:
+  avahi-daemon.conf: |
+    [server]
+    host-name={{ .Values.avahi.domainName }}
+    domain-name={{ .Values.avahi.domainName }}
+    use-ipv4=yes
+    use-ipv6={{ if .Values.avahi.useIPv6 }}yes{{ else }}no{{ end }}
+    {{- if .Values.avahi.allowInterfaces }}
+    allow-interfaces={{ .Values.avahi.allowInterfaces }}
+    {{- end }}
+    {{- if .Values.avahi.denyInterfaces }}
+    deny-interfaces={{ .Values.avahi.denyInterfaces }}
+    {{- end }}
+    ratelimit-interval-usec=1000000
+    ratelimit-burst=1000
+
+    [wide-area]
+    enable-wide-area=no
+
+    [publish]
+    publish-addresses=yes
+    publish-hinfo=no
+    publish-workstation={{ if .Values.avahi.publishWorkstation }}yes{{ else }}no{{ end }}
+    publish-domain=no
+
+    [reflector]
+    enable-reflector={{ if .Values.avahi.enableReflector }}yes{{ else }}no{{ end }}
+    reflect-ipv={{ if .Values.avahi.reflectIPv }}yes{{ else }}no{{ end }}
+    reflect-filters=yes
+
+    [rlimits]
+    rlimit-core=0
+    rlimit-data=4194304
+    rlimit-fsize=0
+    rlimit-nofile=768
+    rlimit-stack=4194304
+    rlimit-nproc=3
+
+  setup.sh: |
+    #!/bin/bash
+    set -e
+
+    echo "[AVAHI] Installing Avahi daemon on host..."
+
+    # Check if running on host filesystem
+    if [ ! -d "/host/usr/bin" ]; then
+      echo "[ERROR] /host mount not found - cannot install to host"
+      exit 1
+    fi
+
+    # Check if avahi is already installed on host
+    if [ -f "/host/usr/sbin/avahi-daemon" ] && [ -f "/host/lib/systemd/system/avahi-daemon.service" ]; then
+      echo "[AVAHI] Avahi already installed on host"
+    else
+      echo "[AVAHI] Installing Avahi packages..."
+      # Use nsenter to run commands in host namespace
+      nsenter --target 1 --mount --uts --ipc --net --pid -- \
+        apt-get update -qq && \
+        apt-get install -y --no-install-recommends avahi-daemon avahi-utils libnss-mdns
+    fi
+
+    # Copy configuration to host
+    echo "[AVAHI] Updating Avahi configuration..."
+    cp /config/avahi-daemon.conf /host/etc/avahi/avahi-daemon.conf
+
+    # Enable and start Avahi daemon on host using systemd
+    echo "[AVAHI] Ensuring Avahi daemon is enabled and running..."
+    nsenter --target 1 --mount --uts --ipc --net --pid -- \
+      systemctl enable avahi-daemon
+
+    nsenter --target 1 --mount --uts --ipc --net --pid -- \
+      systemctl restart avahi-daemon
+
+    # Wait for Avahi to start
+    sleep 2
+
+    # Verify Avahi is running
+    if nsenter --target 1 --mount --uts --ipc --net --pid -- \
+       systemctl is-active --quiet avahi-daemon; then
+      echo "[AVAHI] Avahi daemon is running on host"
+    else
+      echo "[ERROR] Avahi daemon failed to start"
+      nsenter --target 1 --mount --uts --ipc --net --pid -- \
+        systemctl status avahi-daemon
+      exit 1
+    fi
+
+    # Keep container running and monitor Avahi status
+    echo "[AVAHI] Monitoring Avahi daemon..."
+    while true; do
+      if nsenter --target 1 --mount --uts --ipc --net --pid -- \
+         systemctl is-active --quiet avahi-daemon; then
+        sleep 60
+      else
+        echo "[WARNING] Avahi daemon stopped, restarting..."
+        nsenter --target 1 --mount --uts --ipc --net --pid -- \
+          systemctl restart avahi-daemon
+        sleep 10
+      fi
+    done

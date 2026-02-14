@@ -13,6 +13,8 @@ data:
     use-ipv6={{ if .Values.avahi.useIPv6 }}yes{{ else }}no{{ end }}
     {{- if .Values.avahi.allowInterfaces }}
     allow-interfaces={{ .Values.avahi.allowInterfaces }}
+    {{- else }}
+    #allow-interfaces=
     {{- end }}
     {{- if .Values.avahi.denyInterfaces }}
     deny-interfaces={{ .Values.avahi.denyInterfaces }}
@@ -166,8 +168,10 @@ data:
     import threading
     import time
     import select
+    import os
+    import subprocess
     from typing import Set, Tuple
-    
+
     # Configuration from Helm values
     LISTEN_PORT = {{ .Values.unicast.port }}
     PEERS = [
@@ -176,6 +180,9 @@ data:
     {{- end }}
     ]
     TTL = {{ .Values.unicast.ttl }}
+
+    # Get interface from environment or detect
+    INTERFACE = os.environ.get('MDNS_INTERFACE', '')
     
     # Allowed services (from values.yaml)
     ALLOWED_SERVICES = set([
@@ -203,84 +210,155 @@ data:
         global seen_packets
         seen_packets = {(pkt, ts) for pkt, ts in seen_packets if current_time - ts < CACHE_TIMEOUT}
     
-    def should_forward_service(data: bytes) -> bool:
-        """Check if packet contains a service we should forward"""
+    def should_forward_service(data: bytes) -> tuple:
+        """Check if packet contains a service we should forward. Returns (should_forward, service_name)"""
         try:
-            # Simple check - look for service types in packet
-            data_str = data.decode('utf-8', errors='ignore').lower()
-            
+            # Decode and normalize DNS label encoding
+            # In DNS, labels are separated by length bytes (0x04 etc), replace with dots
+            data_decoded = bytearray()
+            for b in data:
+                if b < 32 and b != 0:  # Control characters (DNS label lengths)
+                    data_decoded.append(ord('.'))
+                else:
+                    data_decoded.append(b)
+            data_str = bytes(data_decoded).decode('utf-8', errors='ignore').lower()
+
             # Check if any blocked service is in the packet
             for blocked in BLOCKED_SERVICES:
                 if blocked.lower() in data_str:
-                    return False
-            
+                    return (False, None)
+
             # If no allowed services specified, forward all
             if not ALLOWED_SERVICES:
-                return True
-            
+                return (True, "all")
+
             # Check if any allowed service is in the packet
             for allowed in ALLOWED_SERVICES:
                 if allowed.lower() in data_str:
-                    return True
-            
-            return False
-        except:
-            return False
+                    return (True, allowed)
+
+            # Also forward .local hostname A/AAAA record queries/responses for name resolution
+            if '.local' in data_str and not any(svc in data_str for svc in ['_tcp', '_udp']):
+                return (True, "hostname")
+
+            return (False, None)
+        except Exception as e:
+            return (False, None)
     
+    def get_interface_ip(interface_name):
+        """Get the IP address of a network interface"""
+        try:
+            result = subprocess.run(['ip', '-4', 'addr', 'show', interface_name],
+                                   capture_output=True, text=True, timeout=5)
+            if result.returncode != 0:
+                print(f"[UNICAST] Failed to get IP for {interface_name}: {result.stderr}", file=sys.stderr)
+                return None
+            for line in result.stdout.split('\n'):
+                if 'inet ' in line:
+                    ip = line.strip().split()[1].split('/')[0]
+                    print(f"[UNICAST] Found IP {ip} for interface {interface_name}", file=sys.stderr)
+                    return ip
+            print(f"[UNICAST] No IP address found for interface {interface_name}", file=sys.stderr)
+        except Exception as e:
+            print(f"[UNICAST] Error getting interface IP: {e}", file=sys.stderr)
+        return None
+
     def multicast_listener(sock_unicast):
-        """Listen for local mDNS multicast and forward to peers"""
-        print("[UNICAST] Starting multicast listener...", file=sys.stderr)
-        
-        # Create multicast socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(('', MDNS_PORT))
-        
-        # Join multicast group
-        mreq = struct.pack('4sL', socket.inet_aton(MDNS_ADDR), socket.INADDR_ANY)
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-        
-        print(f"[UNICAST] Listening for mDNS on {MDNS_ADDR}:{MDNS_PORT}", file=sys.stderr)
+        """Listen for local mDNS multicast and forward to peers using raw packets"""
+        print("[UNICAST] Starting multicast listener (raw socket mode)...", file=sys.stderr)
+
+        # Use raw socket to capture all UDP packets on port 5353
+        try:
+            sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0800))  # ETH_P_IP
+            if INTERFACE:
+                sock.bind((INTERFACE, 0))
+                print(f"[UNICAST] Bound to interface {INTERFACE}", file=sys.stderr)
+            else:
+                print("[UNICAST] Warning: No interface specified, listening on all", file=sys.stderr)
+        except PermissionError:
+            print("[UNICAST] ERROR: Need CAP_NET_RAW for raw sockets", file=sys.stderr)
+            return
+
+        print(f"[UNICAST] Capturing mDNS packets on {MDNS_ADDR}:{MDNS_PORT}", file=sys.stderr)
         print(f"[UNICAST] Will forward to peers: {PEERS}", file=sys.stderr)
-        
+
+        packets_seen = 0
+
         while True:
             try:
-                data, addr = sock.recvfrom(9000)
-                
+                packet, addr = sock.recvfrom(9000)
+
+                # Parse Ethernet header (14 bytes)
+                if len(packet) < 14:
+                    continue
+                eth_header = packet[:14]
+                ip_packet = packet[14:]
+
+                # Parse IP header (minimum 20 bytes)
+                if len(ip_packet) < 20:
+                    continue
+
+                # Check if it's UDP (protocol 17)
+                ip_protocol = ip_packet[9]
+                if ip_protocol != 17:
+                    continue
+
+                # Get IP header length
+                ip_header_len = (ip_packet[0] & 0x0F) * 4
+                if len(ip_packet) < ip_header_len + 8:  # IP header + UDP header
+                    continue
+
+                # Parse UDP header
+                udp_packet = ip_packet[ip_header_len:]
+                udp_sport = (udp_packet[0] << 8) | udp_packet[1]
+                udp_dport = (udp_packet[2] << 8) | udp_packet[3]
+
+                # Check if it's mDNS (port 5353 on either source or destination)
+                if udp_sport != MDNS_PORT and udp_dport != MDNS_PORT:
+                    continue
+
+                # Extract mDNS payload (skip 8-byte UDP header)
+                mdns_data = udp_packet[8:]
+
+                # Get source IP for logging
+                src_ip = '.'.join(str(b) for b in ip_packet[12:16])
+
                 # Skip if no peers configured
                 if not PEERS:
                     continue
-                
+
                 # Check cache to prevent loops
-                packet_hash = (data[:100], time.time())  # Use first 100 bytes as identifier
+                packet_hash = (mdns_data[:100] if len(mdns_data) > 100 else mdns_data, time.time())
                 if any(p[0] == packet_hash[0] for p in seen_packets):
                     continue
-                
+
                 seen_packets.add(packet_hash)
                 clean_cache()
-                
+
                 # Check if we should forward this service
-                if not should_forward_service(data):
+                should_forward, service_name = should_forward_service(mdns_data)
+
+                if not should_forward:
                     continue
-                
+
                 # Forward to all peers
                 forwarded = 0
                 for peer in PEERS:
                     try:
                         peer_host, peer_port = peer.split(':')
                         peer_port = int(peer_port)
-                        sock_unicast.sendto(data, (peer_host, peer_port))
+                        sock_unicast.sendto(mdns_data, (peer_host, peer_port))
                         forwarded += 1
                     except Exception as e:
                         print(f"[UNICAST] Error forwarding to {peer}: {e}", file=sys.stderr)
-                
+
                 if forwarded > 0:
-                    print(f"[UNICAST-TX] Forwarded {len(data)} bytes to {forwarded} peer(s)", file=sys.stderr)
-                    
+                    print(f"[UNICAST-TX] {service_name} from {src_ip} → {forwarded} peer(s) ({len(mdns_data)} bytes)", file=sys.stderr)
+
             except Exception as e:
                 print(f"[UNICAST] Multicast listener error: {e}", file=sys.stderr)
                 time.sleep(1)
-    
+
     def unicast_listener():
         """Listen for unicast from peers and re-announce as mDNS"""
         print(f"[UNICAST] Starting unicast listener on port {LISTEN_PORT}...", file=sys.stderr)
@@ -292,29 +370,46 @@ data:
         
         # Create mDNS multicast socket for sending
         sock_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock_send.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        # Set multicast interface and bind to interface IP
+        if INTERFACE:
+            interface_ip = get_interface_ip(INTERFACE)
+            if interface_ip:
+                # Bind to interface IP and mDNS port
+                sock_send.bind((interface_ip, MDNS_PORT))
+                sock_send.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(interface_ip))
+                sock_send.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
+                print(f"[UNICAST] Multicast socket bound to {interface_ip}:5353", file=sys.stderr)
+            else:
+                sock_send.bind(('', MDNS_PORT))
+        else:
+            sock_send.bind(('', MDNS_PORT))
+
         sock_send.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
-        
+
         print(f"[UNICAST] Ready to receive and re-announce mDNS", file=sys.stderr)
         
         while True:
             try:
                 data, addr = sock_listen.recvfrom(9000)
-                
+
                 # Check cache to prevent loops
                 packet_hash = (data[:100], time.time())
                 if any(p[0] == packet_hash[0] for p in seen_packets):
                     continue
-                
+
                 seen_packets.add(packet_hash)
                 clean_cache()
-                
+
                 # Check if we should forward this service
-                if not should_forward_service(data):
+                should_forward, service_name = should_forward_service(data)
+                if not should_forward:
                     continue
-                
+
                 # Re-announce as mDNS multicast
                 sock_send.sendto(data, (MDNS_ADDR, MDNS_PORT))
-                print(f"[UNICAST-RX] Received {len(data)} bytes from {addr[0]}, re-announced as mDNS", file=sys.stderr)
+                print(f"[UNICAST-RX] {service_name} from {addr[0]} → local mDNS ({len(data)} bytes)", file=sys.stderr)
                 
             except Exception as e:
                 print(f"[UNICAST] Unicast listener error: {e}", file=sys.stderr)
@@ -367,15 +462,17 @@ data:
     
     # Copy config files
     cp /config/avahi-daemon.conf /etc/avahi/avahi-daemon.conf
-    
+
     # Auto-detect network interfaces if enabled
     {{- if .Values.reflector.autoDetect }}
     echo "[INFO] Auto-detecting network interfaces..."
-    INTERFACES=$(ip -o link show | awk -F': ' '{print $2}' | grep -v '^lo$\|^docker\|^veth\|^br-' | tr '\n' ',' | sed 's/,$//')
+    INTERFACES=$(ip -o link show | awk -F': ' '{print $2}' | grep -v '^lo$\|^docker\|^veth\|^br-\|^cni' | tr '\n' ',' | sed 's/,$//')
     if [ -n "$INTERFACES" ]; then
       echo "[INFO] Found interfaces: $INTERFACES"
+      {{- if .Values.reflector.enableAvahi }}
       # Update Avahi config to explicitly allow these interfaces
       sed -i "s/#allow-interfaces=.*/allow-interfaces=$INTERFACES/" /etc/avahi/avahi-daemon.conf
+      {{- end }}
     else
       echo "[WARNING] No suitable interfaces found, using defaults"
     fi
@@ -383,28 +480,39 @@ data:
     # Use manually specified interfaces
     INTERFACES="{{ join "," .Values.reflector.interfaces }}"
     echo "[INFO] Using configured interfaces: $INTERFACES"
+    {{- if .Values.reflector.enableAvahi }}
     sed -i "s/#allow-interfaces=.*/allow-interfaces=$INTERFACES/" /etc/avahi/avahi-daemon.conf
     {{- end }}
-    
+    {{- end }}
+
+    {{- if .Values.reflector.enableAvahi }}
     # Start D-Bus
     echo "[INFO] Starting D-Bus..."
     dbus-daemon --system --fork
-    
+
     # Start Avahi daemon
     echo "[INFO] Starting Avahi daemon with reflector enabled..."
     avahi-daemon --no-chroot -D
-    
+
     # Wait for Avahi to start
     sleep 2
-    
+
     # Start service filter in background
     echo "[INFO] Starting service filter..."
     python3 /config/service-filter.py &
     FILTER_PID=$!
+    {{- else }}
+    echo "[INFO] Avahi disabled - using external Avahi instance"
+    {{- end }}
     
     {{- if .Values.unicast.enabled }}
     # Start unicast forwarder for cross-site mDNS
     echo "[INFO] Starting unicast forwarder (cross-site mode)..."
+    # Export first interface for unicast forwarder to use
+    if [ -n "$INTERFACES" ]; then
+      export MDNS_INTERFACE=$(echo "$INTERFACES" | cut -d',' -f1)
+      echo "[INFO] Using interface $MDNS_INTERFACE for multicast"
+    fi
     python3 /config/unicast-forwarder.py &
     UNICAST_PID=$!
     echo "[INFO] Unicast forwarder PID: $UNICAST_PID"
@@ -412,12 +520,15 @@ data:
     
     # Monitor and display reflected services
     echo "[INFO] mDNS Reflector is running"
+    {{- if .Values.reflector.enableAvahi }}
     echo "[INFO] Service filter PID: $FILTER_PID"
+    {{- end }}
     {{- if .Values.unicast.enabled }}
+    echo "[INFO] Unicast forwarder PID: $UNICAST_PID"
     echo "[INFO] Cross-site forwarding enabled on port {{ .Values.unicast.port }}"
     {{- end }}
-    echo "[INFO] Reflecting mDNS between network interfaces..."
-    
+
+    {{- if .Values.reflector.enableAvahi }}
     # Keep container running and show avahi browser output
     avahi-browse -a -t -r -p 2>&1 | while IFS= read -r line; do
       # Parse and display in a readable format
@@ -427,6 +538,16 @@ data:
           ;;
       esac
     done &
-    
+
     # Wait for processes
     wait $FILTER_PID
+    {{- else }}
+    # Keep container running (wait for unicast forwarder or sleep forever)
+    {{- if .Values.unicast.enabled }}
+    echo "[INFO] Waiting for unicast forwarder..."
+    wait $UNICAST_PID
+    {{- else }}
+    echo "[INFO] No services enabled, sleeping..."
+    sleep infinity
+    {{- end }}
+    {{- end }}

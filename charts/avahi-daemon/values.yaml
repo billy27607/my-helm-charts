@@ -1,0 +1,48 @@
+image:
+  repository: debian
+  tag: "12-slim"
+  pullPolicy: IfNotPresent
+
+# Avahi configuration
+avahi:
+  # Domain name for local network
+  domainName: local
+
+  # Enable/disable IPv6
+  useIPv6: false
+
+  # Interfaces to allow (empty = all non-loopback)
+  allowInterfaces: ""
+
+  # Interfaces to deny (comma-separated)
+  denyInterfaces: "lo,docker0,veth.*,br-.*,cni.*,flannel.*"
+
+  # Enable reflector to bounce mDNS between interfaces
+  enableReflector: true
+
+  # Reflect only if TTL > 0 (prevents loops)
+  reflectIPv: true
+
+  # Publish workstation service
+  publishWorkstation: false
+
+# Resource limits
+resources:
+  limits:
+    memory: 256Mi
+  requests:
+    cpu: 10m
+    memory: 128Mi
+
+# Security context - needs NET_ADMIN for mDNS
+securityContext:
+  privileged: true
+  capabilities:
+    add:
+      - NET_ADMIN
+      - NET_RAW
+
+# Node selector (deploy to specific nodes if needed)
+nodeSelector: {}
+
+tolerations: []

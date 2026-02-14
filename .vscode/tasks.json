@@ -110,14 +110,7 @@
     {
       "label": "helm: Install",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/k8s-helpers.sh",
-      "args": [
-        "helm-install",
-        "${input:chartName}",
-        "${input:releaseName}",
-        "--namespace=${input:namespace}",
-        "${input:helmExtraArgs}"
-      ],
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-install '${input:chartName}' '${input:releaseName}' '--namespace=${input:namespace}' ${input:helmExtraArgs}",
       "presentation": {
         "reveal": "always",
         "panel": "shared",
@@ -128,7 +121,7 @@
     {
       "label": "helm: Upgrade",
       "type": "shell",
-      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-upgrade '${input:chartName}' '${input:releaseName}' '--namespace=${input:namespace}' '${input:helmExtraArgs}'",
+      "command": "${workspaceFolder}/scripts/k8s-helpers.sh helm-upgrade '${input:chartName}' '${input:releaseName}' '--namespace=${input:namespace}' ${input:helmExtraArgs}",
       "presentation": {
         "reveal": "always",
         "panel": "shared",

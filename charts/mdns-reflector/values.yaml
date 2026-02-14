@@ -11,20 +11,25 @@ dnsPolicy: ClusterFirstWithHostNet
 # Network interfaces to reflect between
 # Leave empty to auto-detect, or specify interfaces explicitly
 reflector:
+  # Enable Avahi daemon for local mDNS reflection
+  # Set to false if using the avahi-daemon DaemonSet or another Avahi service
+  enableAvahi: false
+
   # Automatically enable reflection between all network interfaces
+  # Auto-detect excludes lo, docker, veth, br-, cni, and flannel interfaces
   # Set to false if you want to manually specify interfaces
   autoDetect: true
-  
+
   # Manually specify interfaces (only used if autoDetect is false)
   # interfaces:
   #   - eth0
-  #   - wg0
+  #   - enp0s25
 
 # Unicast forwarding for cross-site mDNS reflection
 # This allows mDNS to work across VPN/WAN connections
 unicast:
   # Enable unicast forwarding to remote sites
-  enabled: false
+  enabled: true
   
   # Listen port for receiving unicast mDNS from remote sites
   port: 5354
@@ -52,28 +57,25 @@ allowedServices:
   - _ipps._tcp             # IPP over SSL
   - _pdl-datastream._tcp   # Print data stream
   - _scanner._tcp          # Network scanners
-  
-  # Media servers
-  - _airplay._tcp          # AirPlay
-  - _raop._tcp             # Remote Audio Output Protocol (AirPlay)
-  - _touch-able._tcp       # iTunes sharing
-  - _daap._tcp             # Digital Audio Access Protocol
-  - _home-sharing._tcp     # iTunes Home Sharing
-  
+
   # Time Machine
   - _adisk._tcp            # Apple Disk (Time Machine)
   - _timemachine._tcp      # Time Machine
-  
+
   # Custom services (add your own)
   - _http._tcp
   - _https._tcp
+  - _ssh._tcp
 
 # Services to explicitly block (even if in allowedServices)
 # Useful for blocking specific device types
 blockedServices:
+  - _hap._tcp              # HomeKit Accessory Protocol (can cause conflicts)
+  - _airplay._tcp          # AirPlay (should stay local)
+  - _raop._tcp             # Remote Audio Output Protocol (AirPlay)
+  - _airkan._tcp           # UniFi Airkan
   - _ubnt._tcp             # UniFi devices
   - _ubnt-discover._tcp    # UniFi discovery
-  - _airkan._tcp           # UniFi Airkan
   - _spotify-connect._tcp  # Spotify Connect (can cause issues)
   - _googlecast._tcp       # Chromecast (can cause issues)
 

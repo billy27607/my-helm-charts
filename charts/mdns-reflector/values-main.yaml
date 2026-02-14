@@ -1,0 +1,13 @@
+unicast:
+  enabled: true
+  port: 5354
+  peers:
+    - "192.168.101.25:5354"  # Remote site node IP
+
+allowedServices:
+  - _smb._tcp
+  - _afpovertcp._tcp
+  - _printer._tcp
+  - _ipp._tcp
+  - _adisk._tcp
+  - _timemachine._tcp

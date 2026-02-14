@@ -1,0 +1,13 @@
+apiVersion: v2
+name: avahi-daemon
+description: Installs and manages Avahi daemon on host nodes for mDNS/Bonjour discovery
+type: application
+version: 0.1.0
+appVersion: "0.8"
+keywords:
+  - mdns
+  - bonjour
+  - avahi
+  - service-discovery
+maintainers:
+  - name: billy
