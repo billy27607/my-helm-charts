@@ -14,73 +14,65 @@ helm upgrade scrypted ./charts/scrypted --namespace scrypted --set env.avahiEnab
 
 ## Deploy mdns-reflector
 
-### Using VS Code Tasks
-
-**Main Site:**
-- Task: `helm: Install` or `helm: Upgrade`
-- Chart: `mdns-reflector`
-- Release: `mdns-main`
-- Namespace: `networking`
-- Extra Args: `--set unicast.peers[0]=192.168.101.25:5354`
-
-**Remote Site:**
-- Task: `helm: Install` or `helm: Upgrade`
-- Chart: `mdns-reflector`
-- Release: `mdns-remote`
-- Namespace: `networking`
-- Extra Args: `--set unicast.peers[0]=192.168.100.25:5354`
-
 ### Using Helm CLI
 
-**Main Site (192.168.100.0/24):**
+**Main Site (bsmart - 192.168.100.0/24):**
 ```bash
-helm install mdns-main ./charts/mdns-reflector \
-  --namespace networking \
-  --create-namespace \
+helm upgrade --install mdns-reflector ./charts/mdns-reflector \
+  --namespace default \
   --set unicast.peers[0]=192.168.101.25:5354
 ```
 
-**Remote Site (192.168.101.0/24):**
+**Remote Site (fsmart - 192.168.101.0/24):**
 ```bash
-helm install mdns-remote ./charts/mdns-reflector \
-  --namespace networking \
-  --create-namespace \
+helm upgrade --install mdns-reflector ./charts/mdns-reflector \
+  --namespace default \
   --set unicast.peers[0]=192.168.100.25:5354
 ```
+
+### Using VS Code Tasks
+
+**Main Site (bsmart):**
+- Task: `helm: Upgrade`
+- Chart: `mdns-reflector`
+- Release: `mdns-reflector`
+- Namespace: `default`
+- Extra Args: `--set unicast.peers[0]=192.168.101.25:5354`
+
+**Remote Site (fsmart):**
+- Task: `helm: Upgrade`
+- Chart: `mdns-reflector`
+- Release: `mdns-reflector`
+- Namespace: `default`
+- Extra Args: `--set unicast.peers[0]=192.168.100.25:5354`
 
 ## Verify
 
 ```bash
-# Check logs on main site
-kubectl logs -n networking -l app.kubernetes.io/instance=mdns-main --tail=50
+# Check logs
+kubectl logs -l app.kubernetes.io/name=mdns-reflector --tail=50
 
 # Should see:
 # [UNICAST] Joining multicast group on interface enp0s25 (192.168.100.x)
-# [UNICAST-TX] Forwarded XXX bytes to 1 peer(s)
+# [UNICAST-TX] Forwarded _ssh._tcp (bhost.local) to peer
 ```
 
-## What Changed (v0.2.1)
+## What Changed
 
-**New Defaults:**
+**v0.3.5 - Smart DNS Filtering:**
+- Proper DNS packet parsing with name compression support
+- Forwards hostname lookups (A/AAAA records) for discovered services
+- Fixes missing SSH and other service announcements
+
+**v0.3.4 - Raw Socket Forwarding:**
+- Raw socket packet capture for all mDNS traffic
+- Hostname resolution forwarding (.local domains)
+
+**v0.2.1 - Simplified Deployment:**
 - `reflector.enableAvahi: false` - Uses host Avahi (avahi-daemon DaemonSet)
 - `unicast.enabled: true` - Cross-site forwarding enabled by default
-- `reflector.autoDetect: true` - Auto-detects physical interfaces (excludes k8s internal)
+- `reflector.autoDetect: true` - Auto-detects physical interfaces
 
-**You only specify:**
-- `unicast.peers[0]` - IP:port of remote reflector
+**You only need to specify:**
+- `unicast.peers[0]` - IP:port of remote reflector node
 
-**Before (v0.2.0):**
-```bash
---set reflector.enableAvahi=false \
---set reflector.autoDetect=false \
---set reflector.interfaces[0]=enp0s25 \
---set unicast.enabled=true \
---set unicast.peers[0]=192.168.101.25:5354
-```
-
-**Now (v0.2.1):**
-```bash
---set unicast.peers[0]=192.168.101.25:5354
-```
-
-That's it! 🎉

@@ -2,5 +2,5 @@ apiVersion: v2
 name: mdns-reflector
 description: Selective mDNS/Bonjour reflector for multi-site networks with service filtering and unicast forwarding
 type: application
-version: 0.3.4
+version: 0.3.6
 appVersion: "0.8"

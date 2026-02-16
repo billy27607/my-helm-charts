@@ -52,6 +52,8 @@ spec:
           mountPath: {{ .Values.opticalPath }}
         - name: raid5
           mountPath: /raid5
+        - name: avahi-services
+          mountPath: /host-avahi-services-mount
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
       volumes:
@@ -83,3 +85,7 @@ spec:
       - name: raid5
         hostPath:
           path: /raid5
+      - name: avahi-services
+        hostPath:
+          path: /etc/avahi/services
+          type: DirectoryOrCreate

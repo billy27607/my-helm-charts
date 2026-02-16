@@ -93,12 +93,10 @@ data:
     # Enable the user
     smbpasswd -e {{ .Values.samba.username }}
     
-    # Configure Avahi hostname
-    sed -i 's/#host-name=.*/host-name={{ .Values.serviceName }}/' /etc/avahi/avahi-daemon.conf
-    
-    # Configure Avahi for SMB service discovery
-    mkdir -p /etc/avahi/services
-    cat > /etc/avahi/services/smb.service <<'AVAHIEOF'
+    # Configure Avahi service discovery (uses host's avahi daemon)
+    # Note: Host must have avahi-daemon running for mDNS discovery
+    mkdir -p /host-avahi-services
+    cat > /host-avahi-services/automount-smb.service <<'AVAHIEOF'
     <?xml version="1.0" standalone='no'?>
     <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
     <service-group>
@@ -115,12 +113,13 @@ data:
     </service-group>
     AVAHIEOF
 
-    # Start D-Bus (required by Avahi)
-    mkdir -p /var/run/dbus
-    dbus-daemon --system
-    
-    # Start Avahi daemon for Bonjour/mDNS (macOS Finder Locations)
-    avahi-daemon -D
+    # Copy to host's avahi services directory if mounted
+    if [ -d "/host-avahi-services-mount" ]; then
+      cp /host-avahi-services/automount-smb.service /host-avahi-services-mount/
+      echo "Avahi service file copied to host"
+    else
+      echo "Warning: /host-avahi-services-mount not available, mDNS discovery may not work"
+    fi
     
     # Start Samba
     smbd -D

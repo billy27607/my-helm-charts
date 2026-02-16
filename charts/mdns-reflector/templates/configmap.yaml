@@ -210,39 +210,153 @@ data:
         global seen_packets
         seen_packets = {(pkt, ts) for pkt, ts in seen_packets if current_time - ts < CACHE_TIMEOUT}
     
+    def parse_dns_name(data: bytes, offset: int) -> tuple:
+        """Parse a DNS name from packet data. Returns (name, new_offset)"""
+        labels = []
+        original_offset = offset
+        jumped = False
+        jump_offset = 0
+
+        while offset < len(data):
+            length = data[offset]
+
+            # Check for compression pointer (top 2 bits set)
+            if length >= 0xC0:
+                if not jumped:
+                    jump_offset = offset + 2
+                    jumped = True
+                # Pointer to another location in the packet
+                if offset + 1 >= len(data):
+                    break
+                pointer = ((length & 0x3F) << 8) | data[offset + 1]
+                offset = pointer
+                continue
+
+            if length == 0:
+                offset += 1
+                break
+
+            offset += 1
+            if offset + length > len(data):
+                break
+
+            label = data[offset:offset + length].decode('utf-8', errors='ignore')
+            labels.append(label)
+            offset += length
+
+        name = '.'.join(labels).lower()
+        final_offset = jump_offset if jumped else offset
+        return (name, final_offset)
+
     def should_forward_service(data: bytes) -> tuple:
-        """Check if packet contains a service we should forward. Returns (should_forward, service_name)"""
+        """
+        Smart DNS packet filtering based on proper DNS structure parsing.
+        Returns (should_forward, service_name)
+        """
         try:
-            # Decode and normalize DNS label encoding
-            # In DNS, labels are separated by length bytes (0x04 etc), replace with dots
-            data_decoded = bytearray()
-            for b in data:
-                if b < 32 and b != 0:  # Control characters (DNS label lengths)
-                    data_decoded.append(ord('.'))
-                else:
-                    data_decoded.append(b)
-            data_str = bytes(data_decoded).decode('utf-8', errors='ignore').lower()
+            if len(data) < 12:
+                return (False, None)
 
-            # Check if any blocked service is in the packet
-            for blocked in BLOCKED_SERVICES:
-                if blocked.lower() in data_str:
-                    return (False, None)
+            # Parse DNS header
+            # qdcount = number of questions
+            # ancount = number of answers
+            # nscount = number of authority records
+            # arcount = number of additional records
+            qdcount = (data[4] << 8) | data[5]
+            ancount = (data[6] << 8) | data[7]
+            nscount = (data[8] << 8) | data[9]
+            arcount = (data[10] << 8) | data[11]
 
-            # If no allowed services specified, forward all
+            offset = 12
+            all_names = []
+
+            # Parse questions
+            for _ in range(qdcount):
+                if offset >= len(data):
+                    break
+                name, offset = parse_dns_name(data, offset)
+                all_names.append(name)
+                offset += 4  # Skip QTYPE and QCLASS
+                if offset > len(data):
+                    break
+
+            # Parse answers, authority, and additional records
+            for _ in range(ancount + nscount + arcount):
+                if offset >= len(data):
+                    break
+                name, offset = parse_dns_name(data, offset)
+                all_names.append(name)
+
+                # Skip TYPE, CLASS, TTL (10 bytes)
+                if offset + 10 > len(data):
+                    break
+                offset += 10
+
+                # Read RDLENGTH
+                if offset + 2 > len(data):
+                    break
+                rdlength = (data[offset] << 8) | data[offset + 1]
+                offset += 2
+
+                # For PTR, SRV records, parse the target name too
+                rtype = (data[offset - 12] << 8) | data[offset - 11]
+                if rtype in [12, 33]:  # PTR or SRV
+                    if offset < len(data):
+                        target_name, _ = parse_dns_name(data, offset)
+                        all_names.append(target_name)
+
+                # Skip RDATA
+                offset += rdlength
+                if offset > len(data):
+                    break
+
+            # Now check all extracted names against filters
+            # First check for blocked services
+            for name in all_names:
+                for blocked in BLOCKED_SERVICES:
+                    if blocked.lower() in name:
+                        return (False, None)
+
+            # If no allowed services specified, forward all (except blocked)
             if not ALLOWED_SERVICES:
                 return (True, "all")
 
-            # Check if any allowed service is in the packet
-            for allowed in ALLOWED_SERVICES:
-                if allowed.lower() in data_str:
-                    return (True, allowed)
+            # Check if any name contains an allowed service
+            for name in all_names:
+                for allowed in ALLOWED_SERVICES:
+                    if allowed.lower() in name:
+                        return (True, allowed)
 
-            # Also forward .local hostname A/AAAA record queries/responses for name resolution
-            if '.local' in data_str and not any(svc in data_str for svc in ['_tcp', '_udp']):
-                return (True, "hostname")
+            # Also forward .local hostname lookups (A/AAAA records without service types)
+            # This ensures hostname resolution works for discovered services
+            for name in all_names:
+                if '.local' in name and not ('._tcp' in name or '._udp' in name):
+                    return (True, "hostname")
 
             return (False, None)
+
         except Exception as e:
+            # On parse error, fall back to simple string matching
+            try:
+                data_str = data.decode('utf-8', errors='ignore').lower()
+
+                for blocked in BLOCKED_SERVICES:
+                    if blocked.lower() in data_str:
+                        return (False, None)
+
+                if not ALLOWED_SERVICES:
+                    return (True, "all")
+
+                for allowed in ALLOWED_SERVICES:
+                    if allowed.lower() in data_str:
+                        return (True, allowed)
+
+                if '.local' in data_str:
+                    return (True, "hostname")
+
+            except:
+                pass
+
             return (False, None)
     
     def get_interface_ip(interface_name):
@@ -262,6 +376,68 @@ data:
         except Exception as e:
             print(f"[UNICAST] Error getting interface IP: {e}", file=sys.stderr)
         return None
+
+    def local_mdns_listener(sock_unicast):
+        """Listen for locally-generated mDNS announcements that raw socket misses"""
+        print("[UNICAST] Starting local mDNS listener for same-node services...", file=sys.stderr)
+
+        # Create UDP socket to join mDNS multicast group
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        # Bind to mDNS port
+        sock.bind(('', MDNS_PORT))
+
+        # Join mDNS multicast group
+        mreq = struct.pack("4sl", socket.inet_aton(MDNS_ADDR), socket.INADDR_ANY)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+
+        # If interface specified, bind to that interface
+        if INTERFACE:
+            interface_ip = get_interface_ip(INTERFACE)
+            if interface_ip:
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(interface_ip))
+                print(f"[UNICAST] Local mDNS listener bound to interface {INTERFACE} ({interface_ip})", file=sys.stderr)
+
+        print(f"[UNICAST] Local mDNS listener ready on 224.0.0.251:5353", file=sys.stderr)
+
+        while True:
+            try:
+                data, addr = sock.recvfrom(9000)
+                src_ip = addr[0]
+
+                # Check cache to prevent loops
+                packet_hash = (data[:100], time.time())
+                if any(p[0] == packet_hash[0] for p in seen_packets):
+                    continue
+
+                seen_packets.add(packet_hash)
+                clean_cache()
+
+                # Check if we should forward this service
+                should_forward, service_name = should_forward_service(data)
+                if not should_forward:
+                    continue
+
+                # Forward to all peers
+                forwarded = 0
+                for peer in PEERS:
+                    if ':' in peer:
+                        try:
+                            peer_ip, peer_port = peer.split(':')
+                            sock_unicast.sendto(data, (peer_ip, int(peer_port)))
+                            forwarded += 1
+                        except Exception as e:
+                            print(f"[UNICAST] Error forwarding to {peer}: {e}", file=sys.stderr)
+                    else:
+                        print(f"[UNICAST] Invalid peer format (missing port): {peer}", file=sys.stderr)
+
+                if forwarded > 0:
+                    print(f"[UNICAST-TX-LOCAL] {service_name} from {src_ip} → {forwarded} peer(s) ({len(data)} bytes)", file=sys.stderr)
+
+            except Exception as e:
+                print(f"[UNICAST] Local mDNS listener error: {e}", file=sys.stderr)
+                time.sleep(1)
 
     def multicast_listener(sock_unicast):
         """Listen for local mDNS multicast and forward to peers using raw packets"""
@@ -420,14 +596,18 @@ data:
         print(f"[UNICAST] Unicast listen port: {LISTEN_PORT}", file=sys.stderr)
         print(f"[UNICAST] Configured peers: {len(PEERS)}", file=sys.stderr)
         print(f"[UNICAST] Allowed services: {len(ALLOWED_SERVICES)}", file=sys.stderr)
-        
+
         # Create shared unicast socket for sending
         sock_unicast = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        
-        # Start multicast listener in a thread
+
+        # Start local mDNS listener for same-node services
+        local_thread = threading.Thread(target=local_mdns_listener, args=(sock_unicast,), daemon=True)
+        local_thread.start()
+
+        # Start multicast listener for network traffic (raw socket)
         multicast_thread = threading.Thread(target=multicast_listener, args=(sock_unicast,), daemon=True)
         multicast_thread.start()
-        
+
         # Run unicast listener in main thread
         try:
             unicast_listener()

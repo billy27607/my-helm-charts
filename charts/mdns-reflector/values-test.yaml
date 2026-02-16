@@ -1,7 +1,0 @@
-unicast:
-  peers:
-    - "192.168.101.25:5354"
-
-# Temporarily disable filtering to test forwarding
-allowedServices: []
-blockedServices: []
