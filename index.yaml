@@ -3,6 +3,17 @@ entries:
   auto-mount:
   - apiVersion: v2
     appVersion: "1.0"
+    created: "2026-02-16T16:12:42.255170924Z"
+    description: Auto-mount hot-swap drives and optical discs with SMB sharing and
+      simple eject UI
+    digest: df98936eb633b8ea6873c1255b48a760c415c7fa569f4376daa5edaad1043d32
+    name: auto-mount
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/auto-mount-0.1.86/auto-mount-0.1.86.tgz
+    version: 0.1.86
+  - apiVersion: v2
+    appVersion: "1.0"
     created: "2026-02-08T15:21:46.524344215Z"
     description: Auto-mount hot-swap drives and optical discs with SMB sharing and
       simple eject UI
@@ -305,6 +316,17 @@ entries:
   mdns-reflector:
   - apiVersion: v2
     appVersion: "0.8"
+    created: "2026-02-16T16:12:42.481918753Z"
+    description: Selective mDNS/Bonjour reflector for multi-site networks with service
+      filtering and unicast forwarding
+    digest: 7eff8f898bb6c4f78be13068df23a4877ad3e66e7e2fc98fea648c9bd3854240
+    name: mdns-reflector
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/mdns-reflector-0.3.6/mdns-reflector-0.3.6.tgz
+    version: 0.3.6
+  - apiVersion: v2
+    appVersion: "0.8"
     created: "2026-02-14T01:51:03.196616187Z"
     description: Selective mDNS/Bonjour reflector for multi-site networks with service
       filtering and unicast forwarding
@@ -419,4 +441,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.1.0/xcarve-0.1.0.tgz
     version: 0.1.0
-generated: "2026-02-14T01:51:03.196711364Z"
+generated: "2026-02-16T16:12:42.482077151Z"
