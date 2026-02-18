@@ -73,6 +73,7 @@ allowedServices:
   - _https._tcp            # HTTPS servers
   - _ssh._tcp              # SSH servers
   - _enphase-envoy._tcp        # Enphase Envoy solar inverters
+  - _arduino._tcp            # Arduino devices
 
 # Services to explicitly block (even if in allowedServices)
 # Useful for blocking specific device types
