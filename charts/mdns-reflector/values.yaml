@@ -74,7 +74,8 @@ allowedServices:
   - _ssh._tcp              # SSH servers
   - _enphase-envoy._tcp        # Enphase Envoy solar inverters
   - _arduino._tcp            # Arduino devices
-
+  - _octoprint._tcp           # OctoPrint 3D printer server
+  
 # Services to explicitly block (even if in allowedServices)
 # Useful for blocking specific device types
 blockedServices:
