@@ -67,11 +67,11 @@ octoprint:
     #    hosts:
     #      - octoprint.local
 
-# MJPG-Streamer - Webcam streaming for print monitoring
+# go2rtc - WebRTC/HLS webcam streaming
 mjpgStreamer:
   enabled: true
   image:
-    repository: docker.io/badsmoke/mjpg-streamer
+    repository: ghcr.io/alexxit/go2rtc
     tag: latest
     pullPolicy: IfNotPresent
 
@@ -87,10 +87,18 @@ mjpgStreamer:
   # Camera settings
   resolution: "640x480"
   fps: 15
+  # V4L2 input format - common values: mjpeg, yuyv422, h264
+  # Use 'v4l2-ctl --list-formats-ext' on the node to see what your camera supports
+  inputFormat: mjpeg
 
   service:
     type: ClusterIP
-    port: 8080
+    apiPort: 1984
+
+  # WebRTC ICE host IPs - set to your node's LAN IP to fix WebRTC on Kubernetes
+  # (prevents go2rtc from advertising unreachable cluster-internal IPs as ICE candidates)
+  # Example: ["192.168.1.100"]
+  webrtcICEHostIPs: ["192.168.100.24"]
 
   resources:
     limits:

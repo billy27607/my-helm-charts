@@ -1,0 +1,28 @@
+{{- if .Values.mjpgStreamer.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "octoprint.fullname" . }}-go2rtc
+  labels:
+    {{- include "octoprint.mjpgStreamer.labels" . | nindent 4 }}
+data:
+  go2rtc.yaml: |
+    api:
+      listen: :1984
+
+    rtsp:
+      listen: :8554
+
+    webrtc:
+      listen: :8555
+      {{- if .Values.mjpgStreamer.webrtcICEHostIPs }}
+      candidates:
+        {{- range .Values.mjpgStreamer.webrtcICEHostIPs }}
+        - "{{ . }}:8555"
+        {{- end }}
+      {{- end }}
+
+    # Streams are created dynamically when the ffmpeg sidecar publishes via RTSP
+    streams:
+      stream: []
+{{- end }}

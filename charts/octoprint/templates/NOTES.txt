@@ -31,11 +31,29 @@ To view logs:
 
 {{- if .Values.mjpgStreamer.enabled }}
 
-Webcam Stream (MJPG-Streamer):
-  export STREAM_POD=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/component=mjpg-streamer" -o jsonpath="{.items[0].metadata.name}")
-  kubectl --namespace {{ .Release.Namespace }} port-forward $STREAM_POD 8081:8080
-  
-  Then open http://127.0.0.1:8081/?action=stream in your browser
+Webcam Stream (go2rtc - MJPEG):
+  go2rtc is running on port 1984 (API, MJPEG, WebRTC signaling, HLS, snapshots).
+
+  To configure OctoPrint's webcam (Settings -> Plugins -> Classic Webcam), use:
+    Stream URL:   http://<node-ip>:1984/api/stream.mjpeg?src=stream  (stream type: MJPEG, recommended)
+    Snapshot URL: http://127.0.0.1:1984/api/frame.jpeg?src=stream
+    WebRTC URL:   webrtc://<node-ip>:1984/api/webrtc?src=stream  (stream type: WebRTC - lowest latency)
+    HLS URL:      http://<node-ip>:1984/api/stream.m3u8?src=stream  (stream type: HLS)
+
+  NOTE: Stream URLs must be reachable from your browser - use your node's IP or
+  hostname. The Snapshot URL is fetched server-side by OctoPrint so 127.0.0.1
+  works there.
+
+  NOTE: MJPEG is recommended for OctoPrint over HLS/WebRTC as go2rtc's HLS
+  sessions expire quickly and WebRTC requires ICE negotiation. The camera sidecar
+  captures MJPEG natively (-c:v copy passthrough) so no re-encoding occurs.
+
+  To view the stream from outside the cluster (e.g. your laptop):
+    export STREAM_POD=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/component=mjpg-streamer" -o jsonpath="{.items[0].metadata.name}")
+    kubectl --namespace {{ .Release.Namespace }} port-forward $STREAM_POD 1984:1984
+
+    Then open http://127.0.0.1:1984/api/stream.mjpeg?src=stream (MJPEG)
+    or http://127.0.0.1:1984 (go2rtc web UI)
 {{- end }}
 
 Serial Device:

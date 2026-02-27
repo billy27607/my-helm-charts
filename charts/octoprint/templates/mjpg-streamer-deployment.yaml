@@ -16,38 +16,51 @@ spec:
     metadata:
       labels:
         {{- include "octoprint.mjpgStreamer.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/mediamtx-config.yaml") . | sha256sum }}
     spec:
       {{- if .Values.mjpgStreamer.hostNetwork }}
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       {{- end }}
       containers:
-        - name: mjpg-streamer
+        - name: go2rtc
           image: "{{ .Values.mjpgStreamer.image.repository }}:{{ .Values.mjpgStreamer.image.tag }}"
           imagePullPolicy: {{ .Values.mjpgStreamer.image.pullPolicy }}
           {{- if .Values.mjpgStreamer.privileged }}
           securityContext:
             privileged: true
           {{- end }}
-          env:
-            - name: ENV_DEVICE
-              value: {{ .Values.mjpgStreamer.device | quote }}
-            - name: ENV_RESOLUTION
-              value: {{ .Values.mjpgStreamer.resolution | quote }}
-            - name: ENV_FPS
-              value: {{ .Values.mjpgStreamer.fps | quote }}
           ports:
-            - name: http
-              containerPort: 8080
+            - name: api
+              containerPort: 1984
+              protocol: TCP
+            - name: webrtc-media
+              containerPort: 8555
               protocol: TCP
           volumeMounts:
-            - name: dev-video
-              mountPath: {{ .Values.mjpgStreamer.device }}
+            - name: go2rtc-config
+              mountPath: /config/go2rtc.yaml
+              subPath: go2rtc.yaml
           {{- with .Values.mjpgStreamer.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+        - name: camera
+          image: "{{ .Values.mjpgStreamer.image.repository }}:{{ .Values.mjpgStreamer.image.tag }}"
+          imagePullPolicy: {{ .Values.mjpgStreamer.image.pullPolicy }}
+          securityContext:
+            privileged: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - "while true; do ffmpeg -f v4l2 -input_format {{ .Values.mjpgStreamer.inputFormat }} -video_size {{ .Values.mjpgStreamer.resolution }} -framerate {{ .Values.mjpgStreamer.fps }} -i {{ .Values.mjpgStreamer.device }} -c:v copy -rtsp_transport tcp -f rtsp rtsp://127.0.0.1:8554/stream || true; sleep 2; done"
+          volumeMounts:
+            - name: dev-video
+              mountPath: {{ .Values.mjpgStreamer.device }}
       volumes:
+        - name: go2rtc-config
+          configMap:
+            name: {{ include "octoprint.fullname" . }}-go2rtc
         - name: dev-video
           hostPath:
             path: {{ .Values.mjpgStreamer.device }}

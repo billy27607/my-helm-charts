@@ -8,10 +8,10 @@ metadata:
 spec:
   type: {{ .Values.mjpgStreamer.service.type }}
   ports:
-    - port: {{ .Values.mjpgStreamer.service.port }}
-      targetPort: http
+    - port: {{ .Values.mjpgStreamer.service.apiPort }}
+      targetPort: api
       protocol: TCP
-      name: http
+      name: api
   selector:
     {{- include "octoprint.mjpgStreamer.selectorLabels" . | nindent 4 }}
 {{- end }}
