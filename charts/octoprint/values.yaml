@@ -28,13 +28,16 @@ octoprint:
     storageClass: ""  # Leave empty for default StorageClass
     accessMode: ReadWriteOnce
 
+  # Webcam configuration (using go2rtc for streaming, proxied through nginx)
+  webcam:
+    streamUrl: "http://localhost:8080/webcam/?action=stream"
+    snapshotUrl: "http://localhost:8080/webcam/?action=snapshot"
+
   # Environment variables
   env:
     extra:
     - name: OCTOPRINT_PORT
       value: "5000"
-    - name: ENABLE_MJPEG_STREAMER
-      value: "false"
 
   # Resource limits
   resources:

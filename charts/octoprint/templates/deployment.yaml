@@ -40,11 +40,18 @@ spec:
         - name: {{ .name }}
           value: {{ .value | quote }}
         {{- end }}
+        - name: OCTOPRINT_WEBCAM_STREAM
+          value: {{ .Values.octoprint.webcam.streamUrl | quote }}
+        - name: OCTOPRINT_WEBCAM_SNAPSHOT
+          value: {{ .Values.octoprint.webcam.snapshotUrl | quote }}
         volumeMounts:
         - name: data
           mountPath: /octoprint
         - name: serial
           mountPath: {{ .Values.octoprint.serialPort }}
+        - name: webcam-config
+          mountPath: /octoprint/octoprint/config.d/webcam.yaml
+          subPath: webcam.yaml
         {{- if .Values.octoprint.securityContext.privileged }}
         securityContext:
           privileged: true
@@ -67,6 +74,24 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
+      - name: webcam-proxy
+        image: nginx:alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: webcam
+          containerPort: 8080
+          protocol: TCP
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
+        resources:
+          limits:
+            cpu: 100m
+            memory: 64Mi
+          requests:
+            cpu: 50m
+            memory: 32Mi
       volumes:
       - name: data
         {{- if .Values.octoprint.persistence.enabled }}
@@ -78,6 +103,12 @@ spec:
       - name: serial
         hostPath:
           path: {{ .Values.octoprint.serialPort }}
+      - name: webcam-config
+        configMap:
+          name: {{ include "octoprint.fullname" . }}-webcam-config
+      - name: nginx-config
+        configMap:
+          name: {{ include "octoprint.fullname" . }}-nginx-config
       {{- with .Values.octoprint.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

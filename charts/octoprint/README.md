@@ -3,26 +3,27 @@
 OctoPrint is the snappy web interface for your 3D printer that allows you to control and monitor all aspects of your printer and print jobs, right from your browser.
 
 This chart includes:
-- **OctoPrint** - Main 3D printer control interface
-- **MJPG-Streamer** - Webcam streaming for real-time print monitoring
+- **OctoPrint** - Main 3D printer control interface with built-in webcam streaming
+- **go2rtc** (optional) - Advanced WebRTC/HLS webcam streaming as an alternative to the built-in streamer
 
 ## Features
 
 - 🖨️ 3D printer control and monitoring
-- 📹 Built-in webcam streaming via MJPG-Streamer
-- 🔌 Configurable USB serial device access
+- 📹 Built-in webcam streaming via OctoPrint's MJPEG streamer
+- 🔌 Configurable USB serial device access for printer
+- 📷 Configurable video device access for webcam
 - 💾 PersistentVolumeClaim storage (no manual host setup required)
 - 🌐 Ingress support for external access
 - 🎛️ Resource limits and requests
 - 🔒 Security context for device access
 
 ## Prerequisites
-Video device for webcam (e.g., `/dev/video0`)
-- StorageClass configured for persistent volumes (or use default
+
 - Kubernetes 1.19+
 - Helm 3.0+
 - USB serial device for 3D printer (e.g., `/dev/ttyUSB0` or `/dev/ttyACM0`)
-- Optional: Webcam device for monitoring (e.g., `/dev/video0`)
+- Optional: Video device for webcam (e.g., `/dev/video0`)
+- StorageClass configured for persistent volumes (or use default)
 
 ## Installation
 
@@ -35,9 +36,10 @@ helm install octoprint ./charts/octoprint
 ### With Custom Values
 
 ```bash
-helm insoctoprint.serialPort=/dev/ttyACM0 \
+helm install octoprint ./charts/octoprint \
+  --set octoprint.serialPort=/dev/ttyACM0 \
   --set octoprint.persistence.size=20Gi \
-  --set mjpgStreamer.device=/dev/video1
+  --set octoprint.webcam.device=/dev/video1
 ```
 
 ### Using k8s-helpers.sh (Recommended)
@@ -46,27 +48,32 @@ helm insoctoprint.serialPort=/dev/ttyACM0 \
 scripts/k8s-helpers.sh helm-install octoprint my-octoprint \
   --namespace=default \
   --set octoprint.serialPort=/dev/ttyACM0
-scripts/k8s-helpers.sh helm-install octoprint my-octoprint --namespace=default
 ```
 
 ## Configuration
 
 ### Key Configuration Options
-octoprint.enabled` | Enable OctoPrint deployment | `true` |
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `octoprint.enabled` | Enable OctoPrint deployment | `true` |
 | `octoprint.image.repository` | OctoPrint image repository | `octoprint/octoprint` |
-| `octoprint.image.tag` | OctoPrint image tag | `1.10.2` |
-| `octoprint.serialPort` | Serial device path for printer | `/dev/ttyUSB0` |
-| `octoprint.hostNetwork` | Use host network | `false` |
+| `octoprint.image.tag` | OctoPrint image tag | `1.11.6` |
+| `octoprint.serialPort` | Serial device path for printer | `/dev/ttyACM0` |
+| `octoprint.webcam.enabled` | Enable built-in webcam streaming | `true` |
+| `octoprint.webcam.device` | Video device path | `/dev/video0` |
+| `octoprint.webcam.resolution` | Camera resolution | `640x480` |
+| `octoprint.webcam.fps` | Camera frame rate | `15` |
+| `octoprint.hostNetwork` | Use host network | `true` |
 | `octoprint.service.type` | Kubernetes service type | `ClusterIP` |
 | `octoprint.service.port` | Service port | `80` |
 | `octoprint.securityContext.privileged` | Required for device access | `true` |
 | `octoprint.persistence.enabled` | Enable persistent storage | `true` |
 | `octoprint.persistence.size` | Storage size | `10Gi` |
 | `octoprint.persistence.storageClass` | StorageClass name (empty = default) | `""` |
-| `mjpgStreamer.enabled` | Enable webcam streaming | `true` |
-| `mjpgStreamer.device` | Video device path | `/dev/video0` |
-| `mjpgStreamer.resolution` | Camera resolution | `640x480` |
-| `mSerial Port Configuration
+| `mjpgStreamer.enabled` | Enable go2rtc alternative streamer | `false` |
+
+### Serial Port Configuration
 
 Specify your printer's serial port in values.yaml:
 
@@ -87,8 +94,45 @@ ls -l /dev/serial/by-id/
 **Using stable device paths:**
 ```yaml
 octoprint:
+  serialPort: /dev/serial/by-id/usb-Arduino_Mega_2560-if00
+  webcam:
+    device: /dev/v4l/by-id/usb-HD_Camera_HD_Camera-video-index0
+```
+
+### Webcam Configuration
+
+The built-in OctoPrint webcam streamer is enabled by default:
+
+```yaml
 octoprint:
-  persistence:
+  webcam:
+    enabled: true
+    device: /dev/video0
+    resolution: "640x480"
+    fps: 15
+```
+
+The webcam stream will be available at `http://<octoprint-url>:8080/?action=stream` (default MJPEG streamer port).
+
+**Alternative: go2rtc Streamer**
+
+For advanced streaming features (WebRTC, HLS), you can enable the go2rtc component:
+
+```yaml
+mjpgStreamer:
+  enabled: true
+  device: /dev/video0
+  resolution: "640x480"
+  fps: 15
+  
+octoprint:
+  webcam:
+    enabled: false  # Disable built-in streamer
+```
+
+### Persistent Storage
+
+```yaml
     enabled: true
     size: 10Gi
     storageClass: ""  # Uses default StorageClass
@@ -137,25 +181,31 @@ persistence:
 ingress:
   enabled: true
   className: nginx
-  annotations:my-octoprint 8080:80
-```
-
-Then open http://localhost:8080 in your browser.
+  annotations:Then open http://localhost:8080 in your browser.
 
 ### Access Webcam Stream
 
-Forward the MJPG-Streamer port:
+The built-in webcam stream is accessible through OctoPrint's interface at the Control tab, or directly at:
 
 ```bash
-kubectl port-forward svc/my-octoprint-mjpg-streamer 8081:8080
+kubectl port-forward svc/my-octoprint 8080:80
 ```
 
-Then open http://localhost:8081/?action=stream in your browser.
+Then open http://localhost:8080/webcam/?action=stream in your browser.
+
+**For go2rtc (if enabled):**
+```bash
+kubectl port-forward svc/my-octoprint-mjpg-streamer 1984:1984
+```
+
+Then open http://localhost:1984 in your browser.
 
 ### Configure Webcam in OctoPrint
 
-In OctoPrint settings, confimy-octoprint -- ls -l /dev/ttyUSB0
-```
+The webcam should be auto-configured. If needed, you can adjust settings in OctoPrint Settings → Webcam & Timelapse:
+
+- **Stream URL**: `/webcam/?action=stream`
+- **Snapshot URL**: `/webcam/?action=snapshot`
 
 ### View Logs
 
@@ -217,18 +267,26 @@ octoprint:
 
 ### Webcam Not Working
 
-1. **Verify MJPG-Streamer is enabled**:
+1. **Verify webcam is enabled**:
    ```yaml
-   mjpgStreamer:
-     enabled: true
+   octoprint:
+     webcam:
+       enabled: true
    ```
 
-2. **Check video device**:
+2. **Check video device exists**:
    ```bash
-   kubectl exec -it deployment/my-octoprint-mjpg-streamer -- ls -l /dev/video0
+   kubectl exec -it deployment/my-octoprint -- ls -l /dev/video0
    ```
 
-3. **Adjoctoprint.securityContext.privileged: true` is set. Device access requires privileged containers.
+3. **Check MJPEG streamer is running**:
+   ```bash
+   kubectl exec -it deployment/my-octoprint -- ps aux | grep mjpg
+   ```
+
+4. **Verify device permissions**: Ensure `octoprint.securityContext.privileged: true` is set. Device access requires privileged containers.
+
+5. **Test the stream**: Access the webcam at `http://<octoprint-url>/webcam/?action=stream`
 
 ### Storage Issues
 
@@ -284,12 +342,6 @@ octoprint:
     requests:
       cpu: 500m
       memory: 512Mi
-
-mjpgStreamer:
-  resources:
-    limits:
-      cpu: 500m
-      memory: 256Mi
 ```
 
 ### Disable Webcam
@@ -297,8 +349,30 @@ mjpgStreamer:
 If you don't need webcam streaming:
 
 ```yaml
+octoprint:
+  webcam:
+    enabled: false
+```
+
+### Use go2rtc for Advanced Streaming
+
+For WebRTC, HLS, or other advanced streaming features:
+
+```yaml
+octoprint:
+  webcam:
+    enabled: false  # Disable built-in streamer
+    
 mjpgStreamer:
-  enabled: falseinter3d` in your values.
+  enabled: true  # Enable go2rtc
+  device: /dev/video0
+  resolution: "640x480"
+  fps: 15
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+```
 
 ### Webcam Not Working
 
@@ -357,20 +431,6 @@ affinity:
       - matchExpressions:
         - key: hardware.device/3dprinter
           operator: Exists
-```
-
-### Resource Limits
-
-Adjust based on your print complexity and webcam usage:
-
-```yaml
-resources:
-  limits:
-    cpu: 2000m
-    memory: 2Gi
-  requests:
-    cpu: 500m
-    memory: 512Mi
 ```
 
 ## References

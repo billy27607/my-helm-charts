@@ -1,0 +1,19 @@
+{{- if .Values.octoprint.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "octoprint.fullname" . }}-webcam-config
+  labels:
+    {{- include "octoprint.octoprint.labels" . | nindent 4 }}
+data:
+  webcam.yaml: |
+    webcam:
+      stream: {{ .Values.octoprint.webcam.streamUrl }}
+      snapshot: {{ .Values.octoprint.webcam.snapshotUrl }}
+      ffmpeg: /usr/bin/ffmpeg
+      bitrate: 5000k
+      watermark: true
+      flipH: false
+      flipV: false
+      rotate90: false
+{{- end }}
