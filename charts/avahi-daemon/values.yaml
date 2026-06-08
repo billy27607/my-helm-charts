@@ -1,7 +1,7 @@
 image:
   repository: debian
   tag: "12-slim"
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 # Avahi configuration
 avahi:

@@ -4,7 +4,7 @@ octoprint:
   image:
     repository: octoprint/octoprint
     tag: "1.11.6"
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
 
   # Network configuration
   hostNetwork: true
@@ -76,7 +76,7 @@ mjpgStreamer:
   image:
     repository: ghcr.io/alexxit/go2rtc
     tag: latest
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
 
   # Network configuration
   hostNetwork: true

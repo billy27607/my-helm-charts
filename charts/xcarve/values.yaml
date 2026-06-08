@@ -6,7 +6,7 @@ cncjs:
   image:
     repository: docker.io/cncjs/cncjs
     tag: latest
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
 
   # Serial device for CNC connection
   device: /dev/ttyACM0
@@ -35,7 +35,7 @@ mjpgStreamer:
   image:
     repository: docker.io/badsmoke/mjpg-streamer
     tag: latest
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
 
   # Video device for camera
   device: /dev/video0

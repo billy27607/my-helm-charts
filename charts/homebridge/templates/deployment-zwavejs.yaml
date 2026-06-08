@@ -1,0 +1,78 @@
+{{- if .Values.zwavejs.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "homebridge.fullname" . }}-zwavejs
+  labels:
+    {{- include "homebridge.zwavejs.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "homebridge.zwavejs.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "homebridge.zwavejs.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.zwavejs.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      containers:
+        - name: zwavejs
+          image: "{{ .Values.zwavejs.image.repository }}:{{ .Values.zwavejs.image.tag }}"
+          imagePullPolicy: {{ .Values.zwavejs.image.pullPolicy }}
+          {{- with .Values.zwavejs.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: ui
+              containerPort: {{ .Values.zwavejs.service.uiPort }}
+              protocol: TCP
+            - name: ws
+              containerPort: {{ .Values.zwavejs.service.wsPort }}
+              protocol: TCP
+          volumeMounts:
+            - name: zwavejs-data
+              mountPath: /usr/src/app/store
+            - name: serial
+              mountPath: {{ .Values.zwavejs.serialPort }}
+          {{- with .Values.zwavejs.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: zwavejs-data
+          {{- if .Values.zwavejs.persistence.enabled }}
+          {{- if eq .Values.zwavejs.persistence.type "hostPath" }}
+          hostPath:
+            path: {{ .Values.zwavejs.persistence.hostPath }}
+            type: DirectoryOrCreate
+          {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ include "homebridge.fullname" . }}-zwavejs
+          {{- end }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: serial
+          hostPath:
+            path: {{ .Values.zwavejs.serialPort }}
+            type: CharDevice
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,7 +1,7 @@
 image:
   repository: debian
   tag: "12-slim"
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 # Network configuration
 # CRITICAL: Must use hostNetwork for mDNS reflection across subnets
@@ -75,6 +75,7 @@ allowedServices:
   - _enphase-envoy._tcp        # Enphase Envoy solar inverters
   - _arduino._tcp            # Arduino devices
   - _octoprint._tcp           # OctoPrint 3D printer server
+  - _vhusb._tcp              # VHUSB devices (virtual USB over IP)
   
 # Services to explicitly block (even if in allowedServices)
 # Useful for blocking specific device types

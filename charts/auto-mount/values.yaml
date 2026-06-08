@@ -2,7 +2,7 @@
 image:
   repository: ghcr.io/billy27607/auto-mount
   tag: "latest"
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 # Service display name (shown in Finder Locations)
 serviceName: automount

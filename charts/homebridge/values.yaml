@@ -14,6 +14,19 @@ homebridge:
     hostPath: /var/lib/homebridge
     size: 1Gi
     storageClass: ""
+  securityContext:
+    privileged: true
+  avahi:
+    # Restrict avahi to a specific interface to prevent advertising on k8s veth interfaces
+    # Set to the host's LAN interface name (e.g. enp0s25, eth0, eno1)
+    interface: enp0s25
+  devices:
+    - name: zwave-usb
+      path: /dev/ttyACM0
+  dri: true
+  intelGpu:
+    enabled: true
+    count: 1
   resources: {}
 
 mosquitto:
@@ -22,7 +35,7 @@ mosquitto:
   image:
     repository: eclipse-mosquitto
     tag: latest
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   service:
     type: ClusterIP
     port: 1883
@@ -39,6 +52,29 @@ mosquitto:
     log_dest file /mosquitto/log/mosquitto.log
     listener 1883 0.0.0.0
     allow_anonymous true
+  resources: {}
+
+zwavejs:
+  enabled: false
+  image:
+    repository: zwavejs/zwave-js-ui
+    tag: latest
+    pullPolicy: Always
+  hostNetwork: true
+  # Serial port for the Z-Wave dongle - this pod takes exclusive ownership
+  serialPort: /dev/ttyACM0
+  service:
+    type: ClusterIP
+    uiPort: 8091    # Web UI
+    wsPort: 3000    # ZwaveJS WebSocket server (homebridge plugin connects here)
+  persistence:
+    enabled: true
+    type: hostPath
+    hostPath: /var/lib/zwavejs
+    size: 1Gi
+    storageClass: ""
+  securityContext:
+    privileged: true
   resources: {}
 
 nodeSelector: {}

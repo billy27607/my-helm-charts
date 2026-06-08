@@ -1,7 +1,7 @@
 image:
   repository: curlimages/curl
   tag: latest
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 # Websites to monitor
 monitors:

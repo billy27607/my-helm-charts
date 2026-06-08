@@ -1,0 +1,21 @@
+{{- if .Values.zwavejs.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "homebridge.fullname" . }}-zwavejs
+  labels:
+    {{- include "homebridge.zwavejs.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.zwavejs.service.type }}
+  selector:
+    {{- include "homebridge.zwavejs.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: ui
+      port: {{ .Values.zwavejs.service.uiPort }}
+      targetPort: ui
+      protocol: TCP
+    - name: ws
+      port: {{ .Values.zwavejs.service.wsPort }}
+      targetPort: ws
+      protocol: TCP
+{{- end }}

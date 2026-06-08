@@ -168,7 +168,9 @@
       "command": "${workspaceFolder}/scripts/k8s-helpers.sh",
       "args": [
         "helm-restart",
-        "${input:releaseName}"
+        "${input:releaseName}",
+        "--namespace",
+        "${input:namespace}"
       ],
       "presentation": {
         "reveal": "always",
@@ -231,6 +233,39 @@
       "label": "docker: Build and Push auto-mount",
       "type": "shell",
       "command": "cd ${workspaceFolder}/charts/auto-mount && docker build --platform linux/amd64 -t ${input:dockerRegistry}/billy27607/auto-mount:${input:dockerImageTag} . && docker push ${input:dockerRegistry}/billy27607/auto-mount:${input:dockerImageTag}",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "zwave: Start ZwaveJS UI (manage codes)",
+      "type": "shell",
+      "command": "echo '--- Starting ZwaveJS UI ---' && kubectl scale deployment homebridge-zwavejs -n homeautomation --replicas=1 && kubectl rollout status deployment/homebridge-zwavejs -n homeautomation --timeout=60s && echo '' && echo 'ZwaveJS UI ready at http://192.168.101.25:8091' && echo 'NOTE: Disable the homebridge-zwave-usb child bridge in Homebridge UI if it is enabled.'",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "zwave: Stop ZwaveJS UI (free port for HomeKit)",
+      "type": "shell",
+      "command": "echo '--- Stopping ZwaveJS UI ---' && kubectl scale deployment homebridge-zwavejs -n homeautomation --replicas=0 && echo 'ZwaveJS UI stopped.' && echo '' && echo 'You can now re-enable the homebridge-zwave-usb child bridge in Homebridge UI (http://192.168.101.25:8581).'",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "zwave: Status",
+      "type": "shell",
+      "command": "echo '=== ZwaveJS UI pod ===' && kubectl get deployment homebridge-zwavejs -n homeautomation -o wide 2>/dev/null || echo 'Not found' && echo '' && echo '=== Homebridge pod ===' && kubectl get deployment homebridge -n homeautomation -o wide 2>/dev/null || echo 'Not found' && echo '' && echo '=== Serial port holder ===' && kubectl exec -n homeautomation deployment/homebridge-zwavejs -- ls /dev/ttyACM0 2>/dev/null && echo '  -> ZwaveJS UI has /dev/ttyACM0' || echo '  -> ZwaveJS UI is not running (port may be free for homebridge)'",
       "presentation": {
         "reveal": "always",
         "panel": "shared",

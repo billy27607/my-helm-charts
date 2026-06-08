@@ -24,6 +24,10 @@ spec:
         - name: homebridge
           image: "{{ .Values.homebridge.image.repository }}:{{ .Values.homebridge.image.tag }}"
           imagePullPolicy: {{ .Values.homebridge.image.pullPolicy }}
+          {{- with .Values.homebridge.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http
               containerPort: 8581
@@ -31,9 +35,35 @@ spec:
           volumeMounts:
             - name: homebridge-data
               mountPath: /homebridge
-          {{- with .Values.homebridge.resources }}
+            - name: avahi-config
+              mountPath: /etc/avahi/avahi-daemon.conf
+              subPath: avahi-daemon.conf
+            {{- if .Values.homebridge.dri }}
+            - name: dri
+              mountPath: /dev/dri
+            {{- end }}
+            {{- if not .Values.zwavejs.enabled }}
+            {{- range .Values.homebridge.devices }}
+            - name: {{ .name }}
+              mountPath: {{ .path }}
+            {{- end }}
+            {{- end }}
+          {{- if or .Values.homebridge.resources .Values.homebridge.intelGpu.enabled }}
           resources:
-            {{- toYaml . | nindent 12 }}
+            {{- if .Values.homebridge.intelGpu.enabled }}
+            limits:
+              gpu.intel.com/i915: {{ .Values.homebridge.intelGpu.count | quote }}
+              {{- with .Values.homebridge.resources.limits }}
+              {{- toYaml . | nindent 14 }}
+              {{- end }}
+            {{- else if .Values.homebridge.resources.limits }}
+            limits:
+              {{- toYaml .Values.homebridge.resources.limits | nindent 14 }}
+            {{- end }}
+            {{- with .Values.homebridge.resources.requests }}
+            requests:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
           {{- end }}
       volumes:
         - name: homebridge-data
@@ -43,6 +73,22 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        - name: avahi-config
+          configMap:
+            name: {{ include "homebridge.fullname" . }}-avahi
+        {{- if .Values.homebridge.dri }}
+        - name: dri
+          hostPath:
+            path: /dev/dri
+        {{- end }}
+        {{- if not .Values.zwavejs.enabled }}
+        {{- range .Values.homebridge.devices }}
+        - name: {{ .name }}
+          hostPath:
+            path: {{ .path }}
+            type: CharDevice
+        {{- end }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

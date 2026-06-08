@@ -2,7 +2,7 @@ replicaCount: 1
 
 image:
   repository: networkstatic/iperf3
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
   tag: ""
 
 nameOverride: ""

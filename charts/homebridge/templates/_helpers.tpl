@@ -61,3 +61,20 @@ Mosquitto selector labels
 app.kubernetes.io/name: {{ include "homebridge.name" . }}-mosquitto
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+ZwaveJS labels
+*/}}
+{{- define "homebridge.zwavejs.labels" -}}
+helm.sh/chart: {{ include "homebridge.chart" . }}
+{{ include "homebridge.zwavejs.selectorLabels" . }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+ZwaveJS selector labels
+*/}}
+{{- define "homebridge.zwavejs.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "homebridge.name" . }}-zwavejs
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

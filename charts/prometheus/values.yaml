@@ -1,7 +1,7 @@
 image:
   repository: prom/prometheus
   tag: v2.55.1
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 # Use host network for edge deployments (easier service discovery)
 hostNetwork: true
