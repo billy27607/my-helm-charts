@@ -244,6 +244,16 @@ entries:
   homebridge:
   - apiVersion: v2
     appVersion: latest
+    created: "2026-06-08T18:30:07.74948783Z"
+    description: A Helm chart for Homebridge with Mosquitto MQTT broker
+    digest: 6f8d56f7661b401e24963921d4033b137715f69fb946f79df4f072752afb687d
+    name: homebridge
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/homebridge-0.5.0/homebridge-0.5.0.tgz
+    version: 0.5.0
+  - apiVersion: v2
+    appVersion: latest
     created: "2025-12-22T21:28:44.944600393Z"
     description: A Helm chart for Homebridge with Mosquitto MQTT broker
     digest: 761dcb44afb784701f97cad12ea382e0da3252608c91e0ebcd18d5071a289d4d
@@ -425,6 +435,24 @@ entries:
   xcarve:
   - apiVersion: v2
     appVersion: latest
+    created: "2026-06-08T18:30:08.949169626Z"
+    description: A Helm chart for X-Carve CNC machine with CNCjs controller and MJPG-Streamer
+      webcam
+    digest: db2e0fabfa34521fdaba0963cb4fb8bf0d3d662c875338c276c1833e5e98fdb6
+    home: https://github.com/cncjs/cncjs
+    keywords:
+    - cnc
+    - cncjs
+    - xcarve
+    - mjpg-streamer
+    - webcam
+    name: xcarve
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.2.0/xcarve-0.2.0.tgz
+    version: 0.2.0
+  - apiVersion: v2
+    appVersion: latest
     created: "2025-12-29T21:39:02.107271205Z"
     description: A Helm chart for X-Carve CNC machine with CNCjs controller and MJPG-Streamer
       webcam
@@ -441,4 +469,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.1.0/xcarve-0.1.0.tgz
     version: 0.1.0
-generated: "2026-02-16T16:12:42.482077151Z"
+generated: "2026-06-08T18:30:08.949227113Z"
