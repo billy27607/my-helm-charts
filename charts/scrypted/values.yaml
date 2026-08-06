@@ -28,6 +28,13 @@ env:
   # - name: SCRYPTED_NVR_VOLUME
   #   value: /nvr
 
+# D-Bus socket for host Avahi integration (HomeKit mDNS)
+# Enable this to use host's Avahi daemon instead of running Avahi inside container
+dbus:
+  enabled: false
+  # Path to D-Bus system socket on host
+  hostPath: /var/run/dbus/system_bus_socket
+
 # Scrypted database persistence
 persistence:
   enabled: true

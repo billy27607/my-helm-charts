@@ -3,7 +3,7 @@ octoprint:
   enabled: true
   image:
     repository: octoprint/octoprint
-    tag: "1.11.6"
+    tag: "latest"
     pullPolicy: Always
 
   # Network configuration

@@ -72,3 +72,4 @@ ingress:
   path: /automount
   tls:
     enabled: true
+    secretName: bhost-tls  # Self-signed certificate for bhost.baezw.com

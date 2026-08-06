@@ -45,6 +45,10 @@ spec:
             - name: nvr-storage
               mountPath: /nvr
             {{- end }}
+            {{- if .Values.dbus.enabled }}
+            - name: dbus
+              mountPath: /var/run/dbus/system_bus_socket
+            {{- end }}
             {{- if .Values.devices.usb }}
             - name: usb
               mountPath: /dev/bus/usb
@@ -104,6 +108,12 @@ spec:
           persistentVolumeClaim:
             claimName: {{ include "scrypted.fullname" . }}-nvr
           {{- end }}
+        {{- end }}
+        {{- if .Values.dbus.enabled }}
+        - name: dbus
+          hostPath:
+            path: {{ .Values.dbus.hostPath }}
+            type: Socket
         {{- end }}
         {{- if .Values.devices.usb }}
         - name: usb

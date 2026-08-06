@@ -5,7 +5,7 @@
       "id": "chartName",
       "type": "pickString",
       "description": "Select a chart to deploy",
-      "options": ["homebridge", "iperf3", "rtl-sdr", "hdhomerun-app-proxy", "auto-mount", "hdhomerun-tuner-proxy", "prometheus", "xcarve", "scrypted", "firefox-remote", "website-monitor", "octoprint", "mdns-reflector"]
+      "options": ["auto-mount", "avahi-daemon", "firefox-remote", "hdhomerun-app-proxy", "hdhomerun-tuner-proxy", "homebridge", "iperf3", "mdns-reflector", "octoprint", "prometheus", "rtl-sdr", "scrypted", "website-monitor", "xcarve"]
     },
     {
       "id": "releaseName",
@@ -270,6 +270,57 @@
         "reveal": "always",
         "panel": "shared",
         "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "repo: Verify Published Charts",
+      "type": "shell",
+      "command": "echo '\\n=== Checking GitHub Pages Repository ===\\n' && curl -s https://billy27607.github.io/my-helm-charts/index.yaml | head -20 && echo '\\n\\n=== Adding Helm Repo ===\\n' && helm repo add my-charts https://billy27607.github.io/my-helm-charts 2>/dev/null || helm repo update my-charts && echo '\\n=== Available Charts ===\\n' && helm search repo my-charts/ && echo '\\n=== All Versions ===\\n' && helm search repo my-charts/ --versions | head -30",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "repo: Show Chart Details",
+      "type": "shell",
+      "command": "helm repo update my-charts 2>/dev/null && echo '\\n=== Chart Info ===\\n' && helm show chart my-charts/${input:chartName} && echo '\\n=== Default Values ===\\n' && helm show values my-charts/${input:chartName}",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "repo: Lint All Charts",
+      "type": "shell",
+      "command": "for chart in ${workspaceFolder}/charts/*/; do echo \"\\n=== Linting $(basename $chart) ===\"; helm lint \"$chart\"; done",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "repo: Open GitHub Actions",
+      "type": "shell",
+      "command": "open https://github.com/billy27607/my-helm-charts/actions || xdg-open https://github.com/billy27607/my-helm-charts/actions",
+      "presentation": {
+        "reveal": "never"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "repo: Open GitHub Pages Settings",
+      "type": "shell",
+      "command": "open https://github.com/billy27607/my-helm-charts/settings/pages || xdg-open https://github.com/billy27607/my-helm-charts/settings/pages",
+      "presentation": {
+        "reveal": "never"
       },
       "problemMatcher": []
     }
