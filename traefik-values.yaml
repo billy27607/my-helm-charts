@@ -1,0 +1,58 @@
+# Traefik configuration for bhost edge deployment
+
+# Use hostNetwork for direct port binding (80, 443)
+hostNetwork: true
+
+# Deployment configuration
+deployment:
+  replicas: 1
+  
+# Service configuration
+service:
+  enabled: true
+  type: LoadBalancer  # Will use host ports in hostNetwork mode
+
+# Ports configuration
+ports:
+  web:
+    port: 80
+    exposedPort: 80
+    protocol: TCP
+  websecure:
+    port: 443
+    exposedPort: 443
+    protocol: TCP
+  traefik:
+    port: 9000
+    exposedPort: 9000
+    protocol: TCP
+
+# Enable dashboard (accessible at http://bhost.baezw.com:9000/dashboard/)
+ingressRoute:
+  dashboard:
+    enabled: true
+
+# Logs
+logs:
+  general:
+    level: INFO
+  access:
+    enabled: true
+
+# Additional arguments
+additionalArguments:
+  - "--api.insecure=true"  # Allow dashboard without auth (change in production)
+  - "--providers.kubernetesingress.ingressclass=traefik"
+  
+# Resource limits
+resources:
+  requests:
+    cpu: "100m"
+    memory: "50Mi"
+  limits:
+    cpu: "300m"
+    memory: "150Mi"
+
+# Node selector (optional - remove if you want Traefik on any node)
+# nodeSelector:
+#   kubernetes.io/hostname: bhost

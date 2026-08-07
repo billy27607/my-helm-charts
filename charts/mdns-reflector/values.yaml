@@ -18,12 +18,11 @@ reflector:
   # Automatically enable reflection between all network interfaces
   # Auto-detect excludes lo, docker, veth, br-, cni, and flannel interfaces
   # Set to false if you want to manually specify interfaces
-  autoDetect: true
+  autoDetect: false
 
   # Manually specify interfaces (only used if autoDetect is false)
-  # interfaces:
-  #   - eth0
-  #   - enp0s25
+interfaces:
+  - enp0s25
 
 # Unicast forwarding for cross-site mDNS reflection
 # This allows mDNS to work across VPN/WAN connections
@@ -43,7 +42,9 @@ unicast:
   # Remote site (fsmart):
   #   --set unicast.peers[0]=192.168.100.25:5354
   #
-  peers: []
+  peers:
+    - 192.168.101.25:5354
+  #  - 192.168.100.25:5354
 
   # Time to live for forwarded announcements (seconds)
   ttl: 3600
@@ -104,7 +105,7 @@ avahi:
   denyInterfaces: "lo"
   
   # Publish workstation
-  publishWorkstation: false
+  publishWorkstation: true
   
   # Enable reflector (must be true)
   enableReflector: true
