@@ -1,0 +1,51 @@
+image:
+  repository: debian
+  tag: "12-slim"
+  pullPolicy: Always
+
+nameOverride: ""
+fullnameOverride: ""
+
+# hostNetwork is required so PXE/TFTP clients on the LAN can reach this pod
+# directly at the node's IP - that's the address you point your router's
+# DHCP options 66 (next-server) at.
+hostNetwork: true
+dnsPolicy: ClusterFirstWithHostNet
+
+# Restrict the TFTP server to a specific host NIC (e.g. "eth0").
+# Leave empty to listen on all interfaces.
+interface: ""
+
+ubuntu:
+  # Ubuntu release track (major.minor) to serve.
+  # On every pod start the chart looks up the latest point release under
+  # releases.ubuntu.com/<release>/ and only (re)downloads the netboot
+  # tarball when a newer one is published.
+  release: "24.04"
+
+  # Full override URL for the netboot tarball. Leave empty to auto-discover
+  # the latest point release for `ubuntu.release` above.
+  netbootUrlOverride: ""
+
+# Boot files (~100MB) are cached here so they survive pod restarts and
+# don't get re-downloaded every time.
+persistence:
+  enabled: true
+  type: hostPath  # hostPath (edge) or pvc (cluster)
+  hostPath: /var/lib/ubuntu-netboot
+  size: 2Gi
+  storageClass: ""
+
+resources: {}
+  # limits:
+  #   cpu: 200m
+  #   memory: 256Mi
+  # requests:
+  #   cpu: 50m
+  #   memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

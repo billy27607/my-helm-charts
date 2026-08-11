@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ubuntu-netboot.fullname" . }}-config
+  labels:
+    {{- include "ubuntu-netboot.labels" . | nindent 4 }}
+data:
+  dnsmasq.conf: |
+    # TFTP-only: no DHCP, no DNS - this deployment relies on your existing
+    # router/DHCP server (options 66/67) to point clients here.
+    port=0
+    {{- if .Values.interface }}
+    interface={{ .Values.interface }}
+    bind-interfaces
+    {{- end }}
+    enable-tftp
+    tftp-root=/srv/tftp
+    tftp-no-blocksize
+    log-facility=-
+
+  entrypoint.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    echo "[INFO] Starting Ubuntu netboot server..."
+
+    apt-get update -qq
+    apt-get install -y --no-install-recommends \
+      dnsmasq \
+      curl \
+      ca-certificates \
+      > /dev/null 2>&1
+    echo "[INFO] Packages installed"
+
+    RELEASE="{{ .Values.ubuntu.release }}"
+    OVERRIDE_URL="{{ .Values.ubuntu.netbootUrlOverride }}"
+    TFTP_ROOT=/srv/tftp
+    MARKER="$TFTP_ROOT/.netboot-version"
+
+    mkdir -p "$TFTP_ROOT"
+
+    if [ -n "$OVERRIDE_URL" ]; then
+      NETBOOT_URL="$OVERRIDE_URL"
+    else
+      echo "[INFO] Looking up latest Ubuntu $RELEASE netboot tarball..."
+      ESCAPED_RELEASE=$(printf '%s' "$RELEASE" | sed 's/\./\\./g')
+      INDEX=$(curl -fsSL "https://releases.ubuntu.com/$RELEASE/")
+      FILENAME=$(printf '%s' "$INDEX" | grep -oE "ubuntu-${ESCAPED_RELEASE}\.[0-9]+-netboot-amd64\.tar\.gz" | sort -V | uniq | tail -1)
+      if [ -z "$FILENAME" ]; then
+        echo "[ERROR] Could not find a netboot tarball for release $RELEASE under releases.ubuntu.com" >&2
+        exit 1
+      fi
+      NETBOOT_URL="https://releases.ubuntu.com/$RELEASE/$FILENAME"
+    fi
+
+    FILENAME=$(basename "$NETBOOT_URL")
+
+    if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$FILENAME" ]; then
+      echo "[INFO] Netboot files already up to date ($FILENAME), skipping download"
+    else
+      echo "[INFO] Downloading $NETBOOT_URL"
+      curl -fSL "$NETBOOT_URL" -o /tmp/netboot.tar.gz
+      echo "[INFO] Extracting..."
+      rm -rf /tmp/netboot-extract
+      mkdir -p /tmp/netboot-extract
+      tar xzf /tmp/netboot.tar.gz -C /tmp/netboot-extract
+      find "$TFTP_ROOT" -mindepth 1 -maxdepth 1 ! -name '.netboot-version' -exec rm -rf {} +
+      cp -a /tmp/netboot-extract/amd64/. "$TFTP_ROOT"/
+      echo "$FILENAME" > "$MARKER"
+      rm -rf /tmp/netboot-extract /tmp/netboot.tar.gz
+      echo "[INFO] Netboot files installed: $FILENAME"
+    fi
+
+    echo "[INFO] TFTP root: $TFTP_ROOT"
+    echo "[INFO]   BIOS clients -> bootfile: pxelinux.0"
+    echo "[INFO]   UEFI clients -> bootfile: bootx64.efi"
+    echo "[INFO] Starting dnsmasq TFTP server..."
+    exec dnsmasq --no-daemon --conf-file=/config/dnsmasq.conf

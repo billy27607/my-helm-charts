@@ -80,6 +80,7 @@ helm upgrade my-release my-charts/scrypted --namespace ourplan --set hostNetwork
 | [prometheus](./charts/prometheus) | Prometheus monitoring | 0.1.0 |
 | [rtl-sdr](./charts/rtl-sdr) | RTL-SDR radio receiver | 0.1.0 |
 | [scrypted](./charts/scrypted) | NVR home video integration | 0.1.0 |
+| [ubuntu-netboot](./charts/ubuntu-netboot) | PXE/TFTP netboot server for installing Ubuntu Server | 0.1.0 |
 | [website-monitor](./charts/website-monitor) | Website availability monitor | 0.1.0 |
 | [xcarve](./charts/xcarve) | CNCjs with MJPG-Streamer | 0.2.0 |
 

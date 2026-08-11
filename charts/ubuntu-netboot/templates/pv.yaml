@@ -1,0 +1,18 @@
+{{- if and .Values.persistence.enabled (eq .Values.persistence.type "hostPath") }}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ include "ubuntu-netboot.fullname" . }}
+  labels:
+    {{- include "ubuntu-netboot.labels" . | nindent 4 }}
+spec:
+  capacity:
+    storage: {{ .Values.persistence.size }}
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: {{ include "ubuntu-netboot.fullname" . }}
+  hostPath:
+    path: {{ .Values.persistence.hostPath }}
+    type: DirectoryOrCreate
+{{- end }}

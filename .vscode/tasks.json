@@ -5,7 +5,7 @@
       "id": "chartName",
       "type": "pickString",
       "description": "Select a chart to deploy",
-      "options": ["auto-mount", "avahi-daemon", "firefox-remote", "hdhomerun-app-proxy", "hdhomerun-tuner-proxy", "homebridge", "iperf3", "mdns-reflector", "octoprint", "prometheus", "rtl-sdr", "scrypted", "website-monitor", "xcarve"]
+      "options": ["auto-mount", "avahi-daemon", "firefox-remote", "hdhomerun-app-proxy", "hdhomerun-tuner-proxy", "homebridge", "iperf3", "mdns-reflector", "octoprint", "prometheus", "rtl-sdr", "scrypted", "ubuntu-netboot", "website-monitor", "xcarve"]
     },
     {
       "id": "releaseName",
