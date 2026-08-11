@@ -421,6 +421,17 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/scrypted-0.1.0/scrypted-0.1.0.tgz
     version: 0.1.0
+  ubuntu-netboot:
+  - apiVersion: v2
+    appVersion: "24.04"
+    created: "2026-08-11T20:36:54.002062734Z"
+    description: PXE/TFTP netboot server for installing Ubuntu Server over the network
+    digest: e0a9c4fdd8743c3bcc9aa7e3e62fa1b9af0f987edd07917f82aff9a935d35606
+    name: ubuntu-netboot
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/ubuntu-netboot-0.1.0/ubuntu-netboot-0.1.0.tgz
+    version: 0.1.0
   website-monitor:
   - apiVersion: v2
     appVersion: "1.0"
@@ -469,4 +480,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.1.0/xcarve-0.1.0.tgz
     version: 0.1.0
-generated: "2026-06-08T18:30:08.949227113Z"
+generated: "2026-08-11T20:36:54.002121062Z"
