@@ -2,7 +2,7 @@ apiVersion: v2
 name: octoprint
 description: OctoPrint with MJPG-Streamer for 3D printer control and webcam streaming
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "1.10.2"
 keywords:
   - octoprint
