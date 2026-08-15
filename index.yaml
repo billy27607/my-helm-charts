@@ -371,6 +371,25 @@ entries:
   octoprint:
   - apiVersion: v2
     appVersion: 1.10.2
+    created: "2026-08-15T20:19:12.153629688Z"
+    description: OctoPrint with MJPG-Streamer for 3D printer control and webcam streaming
+    digest: 4ac7c96a111d6131367d5b48cee0f4208387f9907bea31bd54d38956985fc3fd
+    home: https://octoprint.org
+    keywords:
+    - octoprint
+    - 3d-printing
+    - printer
+    maintainers:
+    - name: billy27607
+    name: octoprint
+    sources:
+    - https://github.com/OctoPrint/OctoPrint
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/octoprint-0.1.1/octoprint-0.1.1.tgz
+    version: 0.1.1
+  - apiVersion: v2
+    appVersion: 1.10.2
     created: "2026-01-31T01:40:23.022509617Z"
     description: OctoPrint with MJPG-Streamer for 3D printer control and webcam streaming
     digest: 2b2926859168938077ffad2e00bb1a097c8705ec419b9c06467bcec46c0c5790
@@ -480,4 +499,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.1.0/xcarve-0.1.0.tgz
     version: 0.1.0
-generated: "2026-08-11T20:36:54.002121062Z"
+generated: "2026-08-15T20:19:12.1536909Z"
