@@ -70,6 +70,7 @@ helm upgrade my-release my-charts/scrypted --namespace ourplan --set hostNetwork
 |-------|-------------|---------|
 | [auto-mount](./charts/auto-mount) | Automatic NFS mount manager | 0.1.86 |
 | [avahi-daemon](./charts/avahi-daemon) | Avahi mDNS/DNS-SD daemon | 0.1.0 |
+| [chrome-remote](./charts/chrome-remote) | Remote Chrome via noVNC | 0.1.0 |
 | [firefox-remote](./charts/firefox-remote) | Remote Firefox via noVNC | 0.1.0 |
 | [hdhomerun-app-proxy](./charts/hdhomerun-app-proxy) | HDHomeRun app protocol proxy | 0.1.0 |
 | [hdhomerun-tuner-proxy](./charts/hdhomerun-tuner-proxy) | HDHomeRun tuner proxy | 0.1.0 |

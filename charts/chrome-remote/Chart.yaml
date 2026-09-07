@@ -1,0 +1,6 @@
+apiVersion: v2
+name: chrome-remote
+description: Remote Chrome (Chromium) via noVNC with optional ingress
+version: 0.1.0
+appVersion: "latest"
+type: application
