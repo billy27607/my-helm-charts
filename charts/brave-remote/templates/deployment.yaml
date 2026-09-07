@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "firefox-remote.fullname" . }}
+  name: {{ include "brave-remote.fullname" . }}
   labels:
-    {{- include "firefox-remote.labels" . | nindent 4 }}
+    {{- include "brave-remote.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "firefox-remote.selectorLabels" . | nindent 6 }}
+      {{- include "brave-remote.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "firefox-remote.selectorLabels" . | nindent 8 }}
+        {{- include "brave-remote.selectorLabels" . | nindent 8 }}
     spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
@@ -32,7 +32,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        - name: firefox
+        - name: brave
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default "latest" }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
@@ -86,13 +86,13 @@ spec:
             claimName: {{ .Values.persistence.existingClaim }}
           {{- else if .Values.persistence.enabled }}
           persistentVolumeClaim:
-            claimName: {{ include "firefox-remote.fullname" . }}-config
+            claimName: {{ include "brave-remote.fullname" . }}-config
           {{- else }}
           emptyDir: {}
           {{- end }}
         - name: nginx-config
           configMap:
-            name: {{ include "firefox-remote.fullname" . }}-nginx
+            name: {{ include "brave-remote.fullname" . }}-nginx
         - name: tls-cert
           secret:
-            secretName: {{ .Values.ingress.tls.secretName | default (printf "%s-tls" (include "firefox-remote.fullname" .)) }}
+            secretName: {{ .Values.ingress.tls.secretName | default (printf "%s-tls" (include "brave-remote.fullname" .)) }}

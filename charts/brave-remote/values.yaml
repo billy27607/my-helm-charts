@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: lscr.io/linuxserver/firefox
+  repository: lscr.io/linuxserver/brave
   pullPolicy: Always
   tag: ""
 
@@ -14,7 +14,7 @@ hostname: ""
 service:
   type: NodePort
   port: 3000
-  nodePort: 30443
+  nodePort: 30445
   vnc:
     enabled: true
     port: 3001
@@ -27,7 +27,7 @@ ingress:
   entrypoints:
     - https-20443   # if enabled, targets high-port Traefik entrypoint
   hosts:
-    - host: firefox.local
+    - host: brave.local
       paths:
         - path: /
           pathType: Prefix

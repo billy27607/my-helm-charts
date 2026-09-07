@@ -2,9 +2,9 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "firefox-remote.fullname" . }}-config
+  name: {{ include "brave-remote.fullname" . }}-config
   labels:
-    {{- include "firefox-remote.labels" . | nindent 4 }}
+    {{- include "brave-remote.labels" . | nindent 4 }}
 spec:
   accessModes:
     {{- range .Values.persistence.accessModes }}

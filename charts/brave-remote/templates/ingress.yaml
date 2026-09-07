@@ -2,9 +2,9 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "firefox-remote.fullname" . }}
+  name: {{ include "brave-remote.fullname" . }}
   labels:
-    {{- include "firefox-remote.labels" . | nindent 4 }}
+    {{- include "brave-remote.labels" . | nindent 4 }}
   {{- $ann := dict }}
   {{- if .Values.ingress.annotations }}
   {{- $_ := merge $ann .Values.ingress.annotations }}
@@ -27,7 +27,7 @@ spec:
   {{- $tlsHosts = append $tlsHosts .host }}
   {{- end }}
   {{- end }}
-  {{- $secretName := .Values.ingress.tls.secretName | default (printf "%s-tls" (include "firefox-remote.fullname" .)) }}
+  {{- $secretName := .Values.ingress.tls.secretName | default (printf "%s-tls" (include "brave-remote.fullname" .)) }}
   rules:
     {{- range .Values.ingress.hosts }}
     {{- $paths := .paths | default (list (dict "path" "/" "pathType" "Prefix")) }}
@@ -39,7 +39,7 @@ spec:
             pathType: {{ .pathType }}
             backend:
               service:
-                name: {{ include "firefox-remote.fullname" $ }}
+                name: {{ include "brave-remote.fullname" $ }}
                 port:
                   number: {{ $.Values.service.port }}
           {{- end }}
