@@ -185,6 +185,17 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/avahi-daemon-0.1.0/avahi-daemon-0.1.0.tgz
     version: 0.1.0
+  brave-remote:
+  - apiVersion: v2
+    appVersion: latest
+    created: "2026-09-07T14:10:55.327967168Z"
+    description: Remote Brave via noVNC with optional ingress
+    digest: 6567bf69eea1fa3f6fee737feb369a31f3690effc6c90f723054a084291b1fd1
+    name: brave-remote
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/brave-remote-0.1.0/brave-remote-0.1.0.tgz
+    version: 0.1.0
   chrome-remote:
   - apiVersion: v2
     appVersion: latest
@@ -510,4 +521,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.1.0/xcarve-0.1.0.tgz
     version: 0.1.0
-generated: "2026-09-07T13:24:16.94292532Z"
+generated: "2026-09-07T14:10:55.328035999Z"
