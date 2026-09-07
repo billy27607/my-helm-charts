@@ -185,6 +185,17 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/avahi-daemon-0.1.0/avahi-daemon-0.1.0.tgz
     version: 0.1.0
+  chrome-remote:
+  - apiVersion: v2
+    appVersion: latest
+    created: "2026-09-07T13:24:16.94286612Z"
+    description: Remote Chrome (Chromium) via noVNC with optional ingress
+    digest: 1e42cbef0483794f81c1d6545ffa495aecf65a1464b3cdbeb07b1d57be5d0bc3
+    name: chrome-remote
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/chrome-remote-0.1.0/chrome-remote-0.1.0.tgz
+    version: 0.1.0
   firefox-remote:
   - apiVersion: v2
     appVersion: latest
@@ -499,4 +510,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.1.0/xcarve-0.1.0.tgz
     version: 0.1.0
-generated: "2026-08-15T20:19:12.1536909Z"
+generated: "2026-09-07T13:24:16.94292532Z"
