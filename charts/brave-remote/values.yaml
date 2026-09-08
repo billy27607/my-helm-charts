@@ -65,6 +65,14 @@ env:
   displayHeight: 1080
   extraEnv: []
 
+# HTTP basic auth for the web UI, enforced by nginx inside the
+# linuxserver/brave image itself (CUSTOM_USER / PASSWORD env vars).
+# See https://docs.linuxserver.io/images/docker-brave/
+auth:
+  enabled: true
+  username: admin
+  password: ""   # required when auth.enabled is true; set via --set or a values override, do not commit
+
 resources: {}
 
 nodeSelector: {}

@@ -50,6 +50,18 @@ spec:
             - name: {{ .name }}
               value: {{ .value | quote }}
             {{- end }}
+            {{- if .Values.auth.enabled }}
+            - name: CUSTOM_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "brave-remote.fullname" . }}-auth
+                  key: username
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "brave-remote.fullname" . }}-auth
+                  key: password
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
