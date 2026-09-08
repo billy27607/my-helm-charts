@@ -188,6 +188,16 @@ entries:
   brave-remote:
   - apiVersion: v2
     appVersion: latest
+    created: "2026-09-08T13:42:31.652201665Z"
+    description: Remote Brave via noVNC with optional ingress
+    digest: d285d76130fb1c6b01a1b513ef06f5576ddbd950b666b82a91c98c753c42e954
+    name: brave-remote
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/brave-remote-0.2.0/brave-remote-0.2.0.tgz
+    version: 0.2.0
+  - apiVersion: v2
+    appVersion: latest
     created: "2026-09-08T13:18:41.048560537Z"
     description: Remote Brave via noVNC with optional ingress
     digest: e8e47afc8489394790f5e3f2f39f9ce59523718c3a960d22b7764b2949594168
@@ -531,4 +541,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.1.0/xcarve-0.1.0.tgz
     version: 0.1.0
-generated: "2026-09-08T13:18:41.048646637Z"
+generated: "2026-09-08T13:42:31.652273759Z"
