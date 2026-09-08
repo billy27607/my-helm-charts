@@ -48,6 +48,11 @@ persistence:
   storageClass: ""
   mountPath: /config
 
+# Brave (Chromium) needs a real /dev/shm; Kubernetes' default 64Mi tmpfs
+# causes the GPU/renderer process to crash-loop and the browser never starts
+shm:
+  sizeLimit: 1Gi
+
 podSecurityContext: {}
 
 securityContext: {}

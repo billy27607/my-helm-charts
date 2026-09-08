@@ -60,6 +60,8 @@ spec:
           volumeMounts:
             - name: config
               mountPath: {{ .Values.persistence.mountPath }}
+            - name: dshm
+              mountPath: /dev/shm
           {{- with .Values.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
@@ -90,6 +92,10 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.shm.sizeLimit }}
         - name: nginx-config
           configMap:
             name: {{ include "brave-remote.fullname" . }}-nginx

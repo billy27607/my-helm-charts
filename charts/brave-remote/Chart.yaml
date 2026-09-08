@@ -1,6 +1,6 @@
 apiVersion: v2
 name: brave-remote
 description: Remote Brave via noVNC with optional ingress
-version: 0.1.0
+version: 0.1.1
 appVersion: "latest"
 type: application
