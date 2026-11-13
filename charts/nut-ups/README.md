@@ -13,6 +13,15 @@ One pod, on the node the UPS's USB data cable is plugged into:
 | `upsmon` (primary) | Runs the shutdown sequence |
 | `nut_exporter` sidecar | Prometheus metrics on `:9199/ups_metrics` |
 
+### Multiple UPSes
+
+`ups` is the UPS that powers this node. Anything in `additionalUps` (empty by default; see the commented Tripp Lite example in `values.yaml`) is **monitor-only**:
+- you get alerts for it, and LAN equipment plugged into it can connect as clients to `<name>@192.168.100.25` (e.g. `tripplite@192.168.100.25`)
+- it never shuts this node down, and its outlets are never power-cycled
+- if it's unplugged or its driver fails, it's retried every minute without disturbing the primary
+
+Alert titles name the UPS, e.g. "UPS: Tripp Lite - Power outage - on battery". With more than one UPS, scrape metrics per UPS: `/ups_metrics?ups=<name>`.
+
 ### Shutdown sequence
 
 1. Power fails, so the UPS goes **OB** (on battery). Nothing happens yet.
@@ -105,6 +114,8 @@ Windows: [WinNUT-Client](https://github.com/nutdotnet/WinNUT-Client).
 | `shutdown.dryRun` | `false` | Log only; don't cut power or power off the host |
 | `auth.monitorPassword` | generated | Password for LAN clients (`monuser`) |
 | `notifications.provider` | `pushover` | `pushover` or `ntfy` |
+| `additionalUps` | `[]` | Monitor-only UPSes (`name`, `label`, `vendorId`, `serial`, `selfTest`, ...) |
+| `notifications.replaceBatteryRepeat` | `86400` | Seconds between repeated "replace battery" alerts |
 | `selfTest.schedule` | `0 11 1 * *` | Monthly quick battery test |
 | `hostNetwork` | `true` | Expose upsd on the node IP for the LAN |
 

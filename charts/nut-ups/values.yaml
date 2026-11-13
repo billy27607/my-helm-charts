@@ -25,6 +25,7 @@ service:
 # UPS driver settings (written to ups.conf)
 ups:
   name: ups               # clients monitor "<name>@<node-ip>", e.g. ups@192.168.100.25
+  label: "APC"            # shown in notification titles
   description: "APC Back-UPS Pro BR1500MS2"
   driver: usbhid-ups
   port: auto
@@ -33,6 +34,26 @@ ups:
   pollInterval: 15
   # Extra raw lines appended to the [ups] section of ups.conf
   extraConfig: ""
+
+# Monitor-only UPSes on the same node. They get notifications and metrics,
+# and LAN equipment plugged into them can connect as NUT clients, but they
+# never shut this node down and their outlets are never power-cycled.
+# Select each one by vendorId (plus productId/serial if several look alike).
+# A missing or failing one is retried in the background without affecting
+# the primary UPS.
+additionalUps: []
+# - name: tripplite
+#   label: "Tripp Lite"
+#   description: "Tripp Lite SMART1500LCDT"
+#   driver: usbhid-ups
+#   vendorId: "09ae"
+#   productId: ""
+#   serial: ""
+#   pollInterval: 15
+#   batteryChargeLow: 30     # % at which it reports "battery low" (alert only)
+#   batteryRuntimeLow: 300
+#   selfTest: false          # include in the monthly self-test
+#   extraConfig: ""
 
 # When to shut down. The UPS's built-in low-battery point (often ~10% / 2 min)
 # leaves too little time, so by default the driver ignores it and uses these.
@@ -80,6 +101,8 @@ notifications:
   enabled: true
   provider: pushover      # pushover | ntfy
   title: "UPS"            # prefix for notification titles
+  replaceBatteryRepeat: 86400   # seconds between repeated "replace battery" alerts
+  lostContactRepeat: 3600       # seconds between repeated "lost contact" alerts
 
   # Pushover (https://pushover.net): user key from the dashboard, API token from
   # an application created at https://pushover.net/apps/build
@@ -105,7 +128,10 @@ selfTest:
   schedule: "0 11 1 * *"  # 11:00 on the 1st of each month
   timeZone: "America/New_York"
 
-# Prometheus exporter sidecar (scraped via prometheus.io/* pod annotations)
+# Prometheus exporter sidecar (scraped via prometheus.io/* pod annotations).
+# With more than one UPS, nut_exporter needs the UPS named in each scrape:
+# /ups_metrics?ups=ups and /ups_metrics?ups=tripplite (use a scrape job with
+# params: {ups: [...]}; the pod annotation alone can't express that).
 exporter:
   enabled: true
   image:

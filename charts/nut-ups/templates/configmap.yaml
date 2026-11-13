@@ -5,10 +5,27 @@ metadata:
   labels:
     {{- include "nut-ups.labels" . | nindent 4 }}
 data:
+  lib.sh: |
+    # Shared helpers, sourced by the other scripts
+    PRIMARY="{{ .Values.ups.name }}"
+    EXTRA_UPS=({{ range .Values.additionalUps }}"{{ .name }}" {{ end }})
+    ALL_UPS=("$PRIMARY" "${EXTRA_UPS[@]}")
+    SELFTEST_UPS=({{ if .Values.selfTest.enabled }}"{{ .Values.ups.name }}" {{ end }}{{ range .Values.additionalUps }}{{ if .selfTest }}"{{ .name }}" {{ end }}{{ end }})
+    label() {
+      case "$1" in
+        {{ .Values.ups.name }}) echo {{ .Values.ups.label | default .Values.ups.name | quote }} ;;
+        {{- range .Values.additionalUps }}
+        {{ .name }}) echo {{ .label | default .name | quote }} ;;
+        {{- end }}
+        *) echo "$1" ;;
+      esac
+    }
+    driver_running() { pgrep -f -- "-a $1( |$)" >/dev/null; }
+
   entrypoint.sh: |
     #!/bin/bash
     set -uo pipefail
-    UPS="{{ .Values.ups.name }}@localhost"
+    source /scripts/lib.sh
     log() { echo "$(date -Is) [nut] $*"; }
 
     # NUT config comes from the Secret mount; copy so permissions are sane
@@ -21,9 +38,11 @@ data:
 
     log "USB devices visible to the pod:"
     lsusb 2>/dev/null | sed 's/^/    /' || true
-    if ! lsusb -d "{{ .Values.ups.vendorId }}:" >/dev/null 2>&1; then
-      log "WARNING: no USB device with vendor {{ .Values.ups.vendorId }} found - is the UPS data cable connected?"
-    fi
+    {{- range prepend .Values.additionalUps .Values.ups }}
+    {{- with .vendorId }}
+    lsusb -d "{{ . }}:" >/dev/null 2>&1 || log "WARNING: no USB device with vendor {{ . }} found - is the data cable connected?"
+    {{- end }}
+    {{- end }}
 
     stop_all() {
       log "Stopping NUT"
@@ -34,49 +53,90 @@ data:
     }
     trap stop_all TERM INT
 
-    # upsdrvctl can exit 0 even when the driver dies right away, so verify it stays up
-    until upsdrvctl -u root start && sleep 3 && pgrep -x "{{ .Values.ups.driver }}" >/dev/null; do
-      log "Driver {{ .Values.ups.driver }} failed to start; retrying in 15s"
-      upsdrvctl -u root stop >/dev/null 2>&1 || true
+    # One driver per UPS. upsdrvctl can exit 0 even when the driver dies right
+    # away, so check that it stays up.
+    start_driver() {
+      upsdrvctl -u root start "$1" >/dev/null 2>&1
+      sleep 3
+      driver_running "$1"
+    }
+    # The primary UPS (powers this node) is required...
+    until start_driver "$PRIMARY"; do
+      log "Driver for $PRIMARY failed to start; retrying in 15s"
+      upsdrvctl -u root stop "$PRIMARY" >/dev/null 2>&1 || true
       sleep 15
     done
+    # ...monitor-only UPSes are best effort and retried in the background
+    declare -A extra_ok
+    for u in "${EXTRA_UPS[@]}"; do
+      if start_driver "$u"; then extra_ok[$u]=1; else extra_ok[$u]=0; log "WARNING: driver for $u ($(label "$u")) failed to start; will keep retrying"; fi
+    done
+
     upsd -u root || { log "upsd failed to start"; exit 1; }
     upsmon -u root || { log "upsmon failed to start"; exit 1; }
 
-    log "NUT running (dryRun={{ .Values.shutdown.dryRun }}); shutdown at <= {{ .Values.shutdown.batteryChargeLow }}% or <= {{ .Values.shutdown.batteryRuntimeLow }}s runtime while on battery"
-    /scripts/push.sh "Monitor started" "Monitoring {{ .Values.ups.description }}: $(/scripts/summary.sh)" 2 arrows_counterclockwise &
-    last=""
+    log "NUT running (dryRun={{ .Values.shutdown.dryRun }}); shutdown at <= {{ .Values.shutdown.batteryChargeLow }}% or <= {{ .Values.shutdown.batteryRuntimeLow }}s runtime while $(label "$PRIMARY") is on battery"
+    {
+      sleep 10
+      msg=""
+      for u in "${ALL_UPS[@]}"; do msg+="$(label "$u"): $(/scripts/summary.sh "$u")"$'\n'; done
+      /scripts/push.sh "Monitor started" "$msg" 2 arrows_counterclockwise
+    } &
+
+    declare -A last
+    tick=0
     while true; do
-      for p in {{ .Values.ups.driver }} upsd upsmon; do
-        if ! pgrep -x "$p" >/dev/null; then
-          log "$p is not running - exiting so Kubernetes restarts the pod"
-          exit 1
+      for p in upsd upsmon; do
+        pgrep -x "$p" >/dev/null || { log "$p is not running - exiting so Kubernetes restarts the pod"; exit 1; }
+      done
+      driver_running "$PRIMARY" || { log "Driver for $PRIMARY is not running - exiting so Kubernetes restarts the pod"; exit 1; }
+      # Retry dead monitor-only drivers about once a minute without restarting the pod
+      if (( tick % 6 == 0 )); then
+        for u in "${EXTRA_UPS[@]}"; do
+          if driver_running "$u"; then
+            [ "${extra_ok[$u]}" = 1 ] || log "Driver for $u is running"
+            extra_ok[$u]=1
+          else
+            [ "${extra_ok[$u]}" = 0 ] || log "Driver for $u ($(label "$u")) stopped; retrying every minute"
+            extra_ok[$u]=0
+            upsdrvctl -u root start "$u" >/dev/null 2>&1 || true
+          fi
+        done
+      fi
+      for u in "${ALL_UPS[@]}"; do
+        status=$(upsc "$u@localhost" ups.status 2>/dev/null || echo UNKNOWN)
+        if [ "$status" != "${last[$u]:-}" ]; then
+          log "$(label "$u") [$u]: $(/scripts/summary.sh "$u")"
+          last[$u]="$status"
         fi
       done
-      status=$(upsc "$UPS" ups.status 2>/dev/null || echo UNKNOWN)
-      if [ "$status" != "$last" ]; then
-        log "Status: $status charge=$(upsc "$UPS" battery.charge 2>/dev/null)% runtime=$(upsc "$UPS" battery.runtime 2>/dev/null)s load=$(upsc "$UPS" ups.load 2>/dev/null)%"
-        last="$status"
-      fi
+      tick=$((tick + 1))
       sleep 10 & wait $!
     done
 
   notify.sh: |
     #!/bin/bash
     # Called by upsmon for every event; log to the container's stdout
+    source /scripts/lib.sh
     echo "$(date -Is) [upsmon] ${NOTIFYTYPE:-EVENT}: $*" > /proc/1/fd/1
+    name="${UPSNAME%%@*}"
+    [ -n "$name" ] || name="$PRIMARY"   # SHUTDOWN has no UPS; it's always the primary
+    if [ "$name" = "$PRIMARY" ]; then lowbatt="Battery low - shutting down"; lowprio=5
+    else lowbatt="Battery low"; lowprio=4; fi
     case "${NOTIFYTYPE:-}" in
       ONBATT)   title="Power outage - on battery";      prio=4; tags=warning,zap ;;
       ONLINE)   title="Power restored";                 prio=3; tags=electric_plug ;;
-      LOWBATT)  title="Battery low - shutting down";    prio=5; tags=rotating_light,battery ;;
+      LOWBATT)  title="$lowbatt";                       prio=$lowprio; tags=rotating_light,battery ;;
       FSD)      title="Forced shutdown of equipment";   prio=4; tags=rotating_light ;;
       SHUTDOWN) title="Shutting down equipment";        prio=4; tags=rotating_light ;;
-      REPLBATT) title="Replace UPS battery";            prio=4; tags=warning,battery ;;
+      REPLBATT) title="Replace battery";                prio=4; tags=warning,battery ;;
       COMMBAD|NOCOMM) title="Lost contact with UPS";    prio=4; tags=warning ;;
       COMMOK)   title="Contact with UPS restored";      prio=2; tags=white_check_mark ;;
       *)        title="${NOTIFYTYPE:-Event}";           prio=3; tags=information_source ;;
     esac
-    /scripts/push.sh "$title" "$* - $(/scripts/summary.sh)" "$prio" "$tags" > /proc/1/fd/1 2>&1 &
+    title="$(label "$name") - $title"
+    detail=" - $(/scripts/summary.sh "$name")"
+    /scripts/push.sh "$title" "$*$detail" "$prio" "$tags" > /proc/1/fd/1 2>&1 &
     {{- if gt (int .Values.shutdown.onBatteryTimeout) 0 }}
     exec upssched "$@"
     {{- end }}
@@ -119,7 +179,7 @@ data:
     [ -n "$sent" ] || log "WARNING: UPS accepted no power-off command; outlets will stay on until the battery is empty"
     {{- end }}
     log "Powering off host: {{ .Values.shutdown.hostCommand }}"
-    /scripts/push.sh "Powering off $(nsenter -t 1 -u hostname 2>/dev/null || echo host)" "LAN clients done; UPS outlets turn off in {{ .Values.shutdown.offDelay }}s and back on when power returns. $(/scripts/summary.sh)" 4 rotating_light > /proc/1/fd/1 2>&1
+    /scripts/push.sh "Powering off $(nsenter -t 1 -u hostname 2>/dev/null || echo host)" "LAN clients done; $(source /scripts/lib.sh; label "$PRIMARY") outlets turn off in {{ .Values.shutdown.offDelay }}s and back on when power returns. $(/scripts/summary.sh)" 4 rotating_light > /proc/1/fd/1 2>&1
     nsenter -t 1 -m -u -i -n -p -- /bin/sh -c {{ .Values.shutdown.hostCommand | squote }} > /proc/1/fd/1 2>&1 \
       || log "Host power-off command failed (exit $?)"
     # Block so upsmon (and this pod) stay put while the host goes down; otherwise
@@ -130,7 +190,7 @@ data:
   summary.sh: |
     #!/bin/bash
     # One-line UPS summary for notifications
-    UPS="{{ .Values.ups.name }}@${NUT_HOST:-localhost}"
+    UPS="${1:-{{ .Values.ups.name }}}@${NUT_HOST:-localhost}"
     v() { upsc "$UPS" "$1" 2>/dev/null || echo "?"; }
     rt=$(v battery.runtime | tr -cd 0-9)
     echo "status $(v ups.status), battery $(v battery.charge)%, runtime $(( ${rt:-0} / 60 )) min, load $(v ups.load)%"
@@ -172,28 +232,33 @@ data:
   selftest.sh: |
     #!/bin/bash
     # Quick battery self-test, run monthly by the CronJob
-    UPS="{{ .Values.ups.name }}@${NUT_HOST:-localhost}"
+    source /scripts/lib.sh
     log() { echo "$(date -Is) [selftest] $*"; }
-    status=$(upsc "$UPS" ups.status 2>/dev/null)
-    case "$status" in
-      *OB*|"") log "Skipping: UPS status '$status'"; exit 0 ;;
-    esac
-    log "Starting quick battery test ($(/scripts/summary.sh))"
-    if ! upscmd -u "$NUT_ADMIN_USER" -p "$NUT_ADMIN_PASSWORD" "$UPS" test.battery.start.quick; then
-      /scripts/push.sh "Self-test could not start" "$(/scripts/summary.sh)" 4 warning
-      exit 1
-    fi
-    result=""
-    for i in $(seq 1 20); do
-      sleep 15
-      result=$(upsc "$UPS" ups.test.result 2>/dev/null)
-      case "$result" in *[Pp]rogress*|"No test initiated") ;; *) break ;; esac
+    rc=0
+    for name in "${SELFTEST_UPS[@]}"; do
+      UPS="$name@${NUT_HOST:-localhost}"; L=$(label "$name")
+      status=$(upsc "$UPS" ups.status 2>/dev/null)
+      case "$status" in
+        *OB*|"") log "$L: skipping, status '$status'"; continue ;;
+      esac
+      log "$L: starting quick battery test ($(/scripts/summary.sh "$name"))"
+      if ! upscmd -u "$NUT_ADMIN_USER" -p "$NUT_ADMIN_PASSWORD" "$UPS" test.battery.start.quick; then
+        /scripts/push.sh "$L - Self-test could not start" "$(/scripts/summary.sh "$name")" 4 warning
+        rc=1; continue
+      fi
+      result=""
+      for i in $(seq 1 20); do
+        sleep 15
+        result=$(upsc "$UPS" ups.test.result 2>/dev/null)
+        case "$result" in *[Pp]rogress*|"No test initiated") ;; *) break ;; esac
+      done
+      status=$(upsc "$UPS" ups.status 2>/dev/null)
+      log "$L: result: $result (status $status)"
+      if [[ "$result" == *[Pp]assed* && "$status" != *RB* ]]; then
+        /scripts/push.sh "$L - Battery self-test passed" "$result. $(/scripts/summary.sh "$name"). Battery made $(upsc "$UPS" battery.mfr.date 2>/dev/null)" 2 white_check_mark
+      else
+        /scripts/push.sh "$L - Battery self-test FAILED" "$result. $(/scripts/summary.sh "$name"). The battery may need replacing." 5 rotating_light,battery
+        rc=1
+      fi
     done
-    status=$(upsc "$UPS" ups.status 2>/dev/null)
-    log "Result: $result (status $status)"
-    if [[ "$result" == *[Pp]assed* && "$status" != *RB* ]]; then
-      /scripts/push.sh "Battery self-test passed" "$result. $(/scripts/summary.sh). Battery made $(upsc "$UPS" battery.mfr.date 2>/dev/null)" 2 white_check_mark
-    else
-      /scripts/push.sh "Battery self-test FAILED" "$result. $(/scripts/summary.sh). The battery may need replacing." 5 rotating_light,battery
-      exit 1
-    fi
+    exit $rc

@@ -76,7 +76,7 @@ helm upgrade my-release my-charts/scrypted --namespace ourplan --set hostNetwork
 | [homebridge](./charts/homebridge) | HomeKit bridge with Mosquitto MQTT | 0.5.0 |
 | [iperf3](./charts/iperf3) | Network performance testing | 0.2.0 |
 | [mdns-reflector](./charts/mdns-reflector) | Selective mDNS/Bonjour reflector | 0.3.6 |
-| [nut-ups](./charts/nut-ups) | UPS monitoring (NUT) with graceful shutdown and push alerts | 0.2.0 |
+| [nut-ups](./charts/nut-ups) | UPS monitoring (NUT) with graceful shutdown and push alerts | 0.3.0 |
 | [octoprint](./charts/octoprint) | 3D printer control with webcam | 0.1.0 |
 | [prometheus](./charts/prometheus) | Prometheus monitoring | 0.1.0 |
 | [rtl-sdr](./charts/rtl-sdr) | RTL-SDR radio receiver | 0.1.0 |
