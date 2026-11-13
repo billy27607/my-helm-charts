@@ -410,6 +410,18 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/mdns-reflector-0.1.0/mdns-reflector-0.1.0.tgz
     version: 0.1.0
+  nut-ups:
+  - apiVersion: v2
+    appVersion: 2.8.1
+    created: "2026-11-13T14:50:42.763055805Z"
+    description: Network UPS Tools (NUT) server for a USB-attached UPS with graceful
+      host shutdown and Prometheus metrics
+    digest: 572f510f3825cd5f60565ec4eac1bda59b4e8b1608bbfc62d17816a3e2ce464c
+    name: nut-ups
+    type: application
+    urls:
+    - https://github.com/billy27607/my-helm-charts/releases/download/nut-ups-0.2.0/nut-ups-0.2.0.tgz
+    version: 0.2.0
   octoprint:
   - apiVersion: v2
     appVersion: 1.10.2
@@ -541,4 +553,4 @@ entries:
     urls:
     - https://github.com/billy27607/my-helm-charts/releases/download/xcarve-0.1.0/xcarve-0.1.0.tgz
     version: 0.1.0
-generated: "2026-09-08T13:42:31.652273759Z"
+generated: "2026-11-13T14:50:42.763126536Z"
