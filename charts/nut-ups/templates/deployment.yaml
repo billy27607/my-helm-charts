@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nut-ups.fullname" . }}
+  labels:
+    {{- include "nut-ups.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "nut-ups.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nut-ups.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ .Values | toYaml | sha256sum }}
+        {{- if .Values.exporter.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.exporter.port | quote }}
+        prometheus.io/path: /ups_metrics
+        {{- end }}
+    spec:
+      # hostPID lets shutdown.sh nsenter into the host's init to power it off
+      hostPID: true
+      {{- if .Values.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      priorityClassName: system-node-critical
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: nut
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: NUT_ADMIN_USER
+              value: {{ .Values.auth.adminUser | quote }}
+            - name: NUT_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nut-ups.fullname" . }}
+                  key: admin-password
+            {{- include "nut-ups.ntfyEnv" . | nindent 12 }}
+          ports:
+            - name: nut
+              containerPort: 3493
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command: ["upsc", "{{ .Values.ups.name }}@localhost", "ups.status"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: usb
+              mountPath: /dev/bus/usb
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- if .Values.exporter.enabled }}
+        - name: exporter
+          image: "{{ .Values.exporter.image.repository }}:{{ .Values.exporter.image.tag }}"
+          imagePullPolicy: {{ .Values.exporter.image.pullPolicy }}
+          args:
+            - --nut.server=127.0.0.1
+            - --web.listen-address=:{{ .Values.exporter.port }}
+            - --nut.vars_enable={{ .Values.exporter.vars }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.exporter.port }}
+              protocol: TCP
+          {{- with .Values.exporter.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
+      volumes:
+        - name: config
+          secret:
+            secretName: {{ include "nut-ups.fullname" . }}
+        - name: scripts
+          configMap:
+            name: {{ include "nut-ups.fullname" . }}-scripts
+            defaultMode: 0755
+        - name: usb
+          hostPath:
+            path: /dev/bus/usb
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

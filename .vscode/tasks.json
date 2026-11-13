@@ -5,7 +5,7 @@
       "id": "chartName",
       "type": "pickString",
       "description": "Select a chart to deploy",
-      "options": ["auto-mount", "avahi-daemon", "brave-remote", "hdhomerun-app-proxy", "hdhomerun-tuner-proxy", "homebridge", "iperf3", "mdns-reflector", "octoprint", "prometheus", "rtl-sdr", "scrypted", "ubuntu-netboot", "website-monitor", "xcarve"]
+      "options": ["auto-mount", "avahi-daemon", "brave-remote", "hdhomerun-app-proxy", "hdhomerun-tuner-proxy", "homebridge", "iperf3", "mdns-reflector", "nut-ups", "octoprint", "prometheus", "rtl-sdr", "scrypted", "ubuntu-netboot", "website-monitor", "xcarve"]
     },
     {
       "id": "releaseName",
@@ -233,6 +233,39 @@
       "label": "docker: Build and Push auto-mount",
       "type": "shell",
       "command": "cd ${workspaceFolder}/charts/auto-mount && docker build --platform linux/amd64 -t ${input:dockerRegistry}/billy27607/auto-mount:${input:dockerImageTag} . && docker push ${input:dockerRegistry}/billy27607/auto-mount:${input:dockerImageTag}",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "docker: Build nut-ups",
+      "type": "shell",
+      "command": "cd ${workspaceFolder}/charts/nut-ups && docker build --platform linux/amd64 -t ${input:dockerRegistry}/billy27607/nut-ups:${input:dockerImageTag} .",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "docker: Push nut-ups",
+      "type": "shell",
+      "command": "docker push ${input:dockerRegistry}/billy27607/nut-ups:${input:dockerImageTag}",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "docker: Build and Push nut-ups",
+      "type": "shell",
+      "command": "cd ${workspaceFolder}/charts/nut-ups && docker build --platform linux/amd64 -t ${input:dockerRegistry}/billy27607/nut-ups:${input:dockerImageTag} . && docker push ${input:dockerRegistry}/billy27607/nut-ups:${input:dockerImageTag}",
       "presentation": {
         "reveal": "always",
         "panel": "shared",

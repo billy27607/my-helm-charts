@@ -59,7 +59,7 @@ volumes:
 ### Chart Categories
 This repository contains three types of charts:
 
-**Single-Service Charts** (most charts): scrypted, iperf3, rtl-sdr, hdhomerun-app-proxy, hdhomerun-tuner-proxy, auto-mount, firefox-remote, prometheus, website-monitor, mdns-reflector
+**Single-Service Charts** (most charts): scrypted, iperf3, rtl-sdr, hdhomerun-app-proxy, hdhomerun-tuner-proxy, auto-mount, brave-remote, prometheus, website-monitor, mdns-reflector, nut-ups
 - One deployment per chart
 - Standard `_helpers.tpl` with `<chart>.name`, `<chart>.fullname`, `<chart>.labels`, `<chart>.selectorLabels`
 - Pattern examples:
@@ -140,7 +140,7 @@ Tasks automatically:
 3. Test all new tasks work correctly before considering the work complete
 
 ### Docker Build Tasks (Custom Images)
-For charts with custom Docker images (currently: auto-mount):
+For charts with custom Docker images (currently: auto-mount, nut-ups):
 ```bash
 # Via VS Code tasks (Command Palette → Run Task)
 - docker: Build auto-mount

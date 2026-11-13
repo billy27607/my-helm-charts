@@ -1,0 +1,61 @@
+{{- if .Values.selfTest.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "nut-ups.fullname" . }}-selftest
+  labels:
+    {{- include "nut-ups.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.selfTest.schedule | quote }}
+  {{- with .Values.selfTest.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: {{ include "nut-ups.name" . }}-selftest
+            app.kubernetes.io/instance: {{ .Release.Name }}
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: selftest
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["/bin/bash", "/scripts/selftest.sh"]
+              env:
+                - name: NUT_HOST
+                  value: "{{ include "nut-ups.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local"
+                - name: NUT_ADMIN_USER
+                  value: {{ .Values.auth.adminUser | quote }}
+                - name: NUT_ADMIN_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "nut-ups.fullname" . }}
+                      key: admin-password
+                {{- include "nut-ups.ntfyEnv" . | nindent 16 }}
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 5m
+                  memory: 16Mi
+                limits:
+                  memory: 64Mi
+          volumes:
+            - name: scripts
+              configMap:
+                name: {{ include "nut-ups.fullname" . }}-scripts
+                defaultMode: 0755
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

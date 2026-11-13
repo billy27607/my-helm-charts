@@ -1,0 +1,23 @@
+{{- if .Values.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nut-ups.fullname" . }}
+  labels:
+    {{- include "nut-ups.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: nut
+      protocol: TCP
+      name: nut
+    {{- if .Values.exporter.enabled }}
+    - port: {{ .Values.exporter.port }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    {{- end }}
+  selector:
+    {{- include "nut-ups.selectorLabels" . | nindent 4 }}
+{{- end }}
